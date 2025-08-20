@@ -1,16 +1,59 @@
 const db = require('../db');
-const Razorpay = require('razorpay');
+const multer = require('multer');
+const fs = require('fs');
+const path = require('path');
+const archiver = require('archiver');
 
-// Initialize Razorpay with your API keys
-const razorpay = new Razorpay({
-  key_id: process.env.RAZORPAY_KEY_ID,
-  key_secret: process.env.RAZORPAY_KEY_SECRET,
+// Multer configuration for file uploads
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const uploadPath = path.join(__dirname, '..', 'Uploads');
+    if (!fs.existsSync(uploadPath)) {
+      fs.mkdirSync(uploadPath, { recursive: true });
+    }
+    cb(null, uploadPath);
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, `${file.fieldname}-${uniqueSuffix}${path.extname(file.originalname)}`);
+  }
 });
 
+const fileFilter = (req, file, cb) => {
+  const allowedTypes = ['image/jpeg', 'image/png', 'application/pdf'];
+  if (!allowedTypes.includes(file.mimetype)) {
+    console.error('Invalid file type:', file.mimetype, 'for file:', file.originalname);
+    return cb(new Error('Only JPEG, PNG, and PDF files are allowed'), false);
+  }
+  cb(null, true);
+};
+
+const upload = multer({
+  storage,
+  fileFilter,
+  limits: {
+    fileSize: 5 * 1024 * 1024 // 5MB limit for most files
+  }
+});
+
+// File upload fields for registration
+const uploadFields = upload.fields([
+  { name: 'applicant_photo', maxCount: 1 },
+  { name: 'aadhar_copy', maxCount: 1 },
+  { name: 'residence_certificate', maxCount: 1 },
+  { name: 'degree_certificate', maxCount: 1 },
+  { name: 'other_university_certificate', maxCount: 1 },
+  { name: 'signature', maxCount: 1 }
+]);
+
+// Single file upload for the upload route
+const singleUpload = upload.single('file');
+
 // Enums
-const DEGREE_ENUM = ['UG', 'PG'];
 const GENDER_ENUM = ['Male', 'Female', 'Other'];
 const LUNCH_ENUM = ['VEG', 'NON-VEG'];
+const COMMUNITY_ENUM = ['OC', 'BC', 'SC', 'ST', 'MBC'];
+const DISTRICT_ENUM = ['Dharmapuri', 'Krishnagiri', 'Namakkal', 'Salem'];
 const COMPANION_ENUM = [
   '1 Veg',
   '1 Non veg',
@@ -21,6 +64,8 @@ const COMPANION_ENUM = [
 
 const isEmail = (s) => !!s && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s);
 const isPhone = (s) => !!s && /^\d{10}$/.test(s);
+const isAadhar = (s) => !!s && /^\d{12}$/.test(s);
+const isDate = (s) => !!s && /^\d{4}-\d{2}-\d{2}$/.test(s);
 
 const toBool = (v) => {
   if (typeof v === 'boolean') return v;
@@ -43,180 +88,134 @@ exports.checkEmail = (req, res) => {
   }
   db.get(`SELECT email FROM students WHERE email = ?`, [email], (err, row) => {
     if (err) {
-      console.error('DB fetch error:', err.message);
+      console.error('DB fetch error for email check:', err.message, err.stack);
       return res.status(500).json({ error: 'Failed to check email' });
     }
     return res.status(200).json({ exists: !!row });
   });
 };
 
-exports.createCheckoutSession = async (req, res) => {
-  try {
-    const options = {
-      amount: 50000, // Amount in paise (500 INR = 50000 paise)
-      currency: 'INR',
-      receipt: `receipt_${Date.now()}`,
-      notes: {
-        // Store form data temporarily in notes
-        name: req.body.name,
-        university_register_no: req.body.university_register_no,
-        college_roll_no: req.body.college_roll_no || '',
-        degree: req.body.degree,
-        course: req.body.course,
-        whatsapp_number: req.body.whatsapp_number,
-        email: req.body.email || '',
-        gender: req.body.gender,
-        address: req.body.address || '',
-        pursuing_higher_studies: req.body.pursuing_higher_studies,
-        hs_course_name: req.body.hs_course_name || '',
-        hs_institution_name: req.body.hs_institution_name || '',
-        employed: req.body.employed,
-        lunch_required: req.body.lunch_required,
-        companion_option: req.body.companion_option,
-      },
-    };
-
-    const order = await razorpay.orders.create(options);
-    res.json({ id: order.id, key_id: process.env.RAZORPAY_KEY_ID });
-  } catch (err) {
-    console.error('Razorpay order creation error:', err.message);
-    res.status(500).json({ error: 'Failed to create checkout session' });
-  }
-};
-
-exports.verifyPayment = async (req, res) => {
-  const { order_id, payment_id, signature } = req.body;
-
-  if (!order_id || !payment_id || !signature) {
-    return res.status(400).json({ error: 'Order ID, Payment ID, and Signature are required' });
-  }
-
-  try {
-    const crypto = require('crypto');
-    const generated_signature = crypto
-      .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET)
-      .update(order_id + '|' + payment_id)
-      .digest('hex');
-
-    if (generated_signature === signature) {
-      res.json({ status: 'paid' });
-    } else {
-      res.status(400).json({ error: 'Invalid signature' });
-    }
-  } catch (err) {
-    console.error('Razorpay payment verification error:', err.message);
-    res.status(500).json({ error: 'Failed to verify payment' });
-  }
-};
-
 exports.register = (req, res) => {
-  const { order_id, payment_id, signature } = req.body;
-
-  // Verify Razorpay payment
-  const crypto = require('crypto');
-  const generated_signature = crypto
-    .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET)
-    .update(order_id + '|' + payment_id)
-    .digest('hex');
-
-  if (generated_signature !== signature) {
-    return res.status(400).json({ error: 'Invalid payment signature' });
-  }
-
-  // Fetch order details to get metadata (notes)
-  razorpay.orders.fetch(order_id, async (err, order) => {
-    if (err || order.status !== 'paid') {
-      console.error('Razorpay order fetch error:', err?.message || 'Payment not completed');
-      return res.status(400).json({ error: 'Payment not completed' });
+  uploadFields(req, res, async (err) => {
+    if (err) {
+      console.error('Multer error:', err.message, err.stack);
+      return res.status(400).json({ error: err.message });
     }
 
-    let {
-      name,
-      university_register_no,
-      college_roll_no,
-      degree,
-      course,
-      whatsapp_number,
-      email,
-      gender,
-      address,
-      pursuing_higher_studies,
-      hs_course_name,
-      hs_institution_name,
-      employed,
-      lunch_required,
-      companion_option,
-    } = order.notes; // Retrieve form data from notes
+    const {
+      full_name, date_of_birth, gender, guardian_name, nationality, religion, email, mobile_number,
+      place_of_birth, community, mother_tongue, aadhar_number, degree_name, university_name,
+      degree_pattern, convocation_year, occupation, address, declaration, lunch_required, companion_option
+    } = req.body;
 
-    if (typeof name === 'string') name = name.toUpperCase();
+    const is_registered_graduate = toBool(req.body.is_registered_graduate);
 
-    // Required + basic validation
-    if (!name) return res.status(400).json({ error: 'name is required' });
-    if (!university_register_no) return res.status(400).json({ error: 'university_register_no is required' });
-    if (!degree || !DEGREE_ENUM.includes(degree)) return res.status(400).json({ error: `degree must be ${DEGREE_ENUM.join(' or ')}` });
-    if (!course) return res.status(400).json({ error: 'course is required' });
-    if (!whatsapp_number || !isPhone(whatsapp_number)) return res.status(400).json({ error: 'whatsapp_number must be exactly 10 digits' });
-    if (email && !isEmail(email)) return res.status(400).json({ error: 'email is invalid' });
-    if (!gender || !GENDER_ENUM.includes(gender)) return res.status(400).json({ error: `gender must be one of ${GENDER_ENUM.join(', ')}` });
+    console.log('Register request:', { body: req.body, files: Object.keys(req.files || {}) });
 
-    const pursuingBool = toBool(pursuing_higher_studies);
-    const employedBool = toBool(employed);
-    if (pursuingBool === null) return res.status(400).json({ error: 'pursuing_higher_studies must be Yes/No or boolean' });
-    if (employedBool === null) return res.status(400).json({ error: 'employed must be Yes/No or boolean' });
+    // Validate all fields
+    if (!full_name) return res.status(400).json({ error: 'Full name is required' });
+    if (!date_of_birth || !isDate(date_of_birth)) return res.status(400).json({ error: 'Valid date of birth (YYYY-MM-DD) is required' });
+    if (!gender || !GENDER_ENUM.includes(gender)) return res.status(400).json({ error: `Gender must be one of ${GENDER_ENUM.join(', ')}` });
+    if (!guardian_name) return res.status(400).json({ error: 'Guardian name is required' });
+    if (!nationality) return res.status(400).json({ error: 'Nationality is required' });
+    if (!religion) return res.status(400).json({ error: 'Religion is required' });
+    if (email && !isEmail(email)) return res.status(400).json({ error: 'Valid email is required' });
+    if (!mobile_number || !isPhone(mobile_number)) return res.status(400).json({ error: 'Mobile number must be exactly 10 digits' });
+    if (!place_of_birth || !DISTRICT_ENUM.includes(place_of_birth)) return res.status(400).json({ error: `Place of birth must be one of ${DISTRICT_ENUM.join(', ')}` });
+    if (!community || !COMMUNITY_ENUM.includes(community)) return res.status(400).json({ error: `Community must be one of ${COMMUNITY_ENUM.join(', ')}` });
+    if (!mother_tongue) return res.status(400).json({ error: 'Mother tongue is required' });
+    if (!req.files?.applicant_photo) return res.status(400).json({ error: 'Applicant photo is required' });
+    if (req.files.applicant_photo[0].size > 2 * 1024 * 1024) return res.status(400).json({ error: 'Applicant photo must be less than 2MB' });
+    if (!aadhar_number || !isAadhar(aadhar_number)) return res.status(400).json({ error: 'Aadhar number must be exactly 12 digits' });
+    if (!req.files?.aadhar_copy) return res.status(400).json({ error: 'Aadhar copy is required' });
+    if (req.files.aadhar_copy[0].size > 2 * 1024 * 1024) return res.status(400).json({ error: 'Aadhar copy must be less than 2MB' });
+    if (!req.files?.residence_certificate) return res.status(400).json({ error: 'Residence certificate is required' });
+    if (req.files.residence_certificate[0].size > 5 * 1024 * 1024) return res.status(400).json({ error: 'Residence certificate must be less than 5MB' });
+    if (!degree_name) return res.status(400).json({ error: 'Degree name is required' });
+    if (!university_name) return res.status(400).json({ error: 'University name is required' });
+    if (!degree_pattern) return res.status(400).json({ error: 'Degree pattern is required' });
+    if (!convocation_year) return res.status(400).json({ error: 'Convocation year is required' });
+    if (!req.files?.degree_certificate) return res.status(400).json({ error: 'Degree certificate is required' });
+    if (req.files.degree_certificate[0].size > 5 * 1024 * 1024) return res.status(400).json({ error: 'Degree certificate must be less than 5MB' });
+    if (is_registered_graduate === null) return res.status(400).json({ error: 'is_registered_graduate must be Yes/No or boolean' });
+    if (is_registered_graduate && !req.files?.other_university_certificate) return res.status(400).json({ error: 'Other university certificate is required when registered with another university' });
+    if (req.files?.other_university_certificate && req.files.other_university_certificate[0].size > 5 * 1024 * 1024) return res.status(400).json({ error: 'Other university certificate must be less than 5MB' });
+    if (!occupation) return res.status(400).json({ error: 'Occupation is required' });
+    if (!address) return res.status(400).json({ error: 'Address is required' });
+    if (!req.files?.signature) return res.status(400).json({ error: 'Signature is required' });
+    if (req.files.signature[0].size > 5 * 1024 * 1024) return res.status(400).json({ error: 'Signature must be less than 5MB' });
+    if (!toBool(declaration)) return res.status(400).json({ error: 'Declaration must be true' });
+    if (!lunch_required || !LUNCH_ENUM.includes(lunch_required)) return res.status(400).json({ error: `Lunch required must be one of ${LUNCH_ENUM.join(', ')}` });
+    if (!companion_option || !COMPANION_ENUM.includes(companion_option)) return res.status(400).json({ error: `Companion option must be one of: ${COMPANION_ENUM.join(' | ')}` });
 
-    if (!lunch_required || !LUNCH_ENUM.includes(lunch_required)) {
-      return res.status(400).json({ error: `lunch_required must be one of ${LUNCH_ENUM.join(', ')}` });
-    }
-    if (!companion_option || !COMPANION_ENUM.includes(companion_option)) {
-      return res.status(400).json({ error: `companion_option must be one of: ${COMPANION_ENUM.join(' | ')}` });
-    }
-
-    if (pursuingBool && (!hs_course_name || !hs_institution_name)) {
-      return res.status(400).json({ error: 'hs_course_name and hs_institution_name are required when pursuing_higher_studies is Yes' });
+    // Check email uniqueness if provided
+    if (email) {
+      const emailExists = await new Promise((resolve, reject) => {
+        db.get(`SELECT email FROM students WHERE email = ?`, [email], (err, row) => {
+          if (err) {
+            console.error('DB fetch error for email uniqueness:', err.message, err.stack);
+            reject(err);
+          }
+          resolve(!!row);
+        });
+      });
+      if (emailExists) return res.status(409).json({ error: 'Email is already registered' });
     }
 
     const params = [
-      name,
-      university_register_no,
-      college_roll_no || null,
-      degree,
-      course,
-      whatsapp_number,
-      email || null,
+      full_name.toUpperCase(),
+      date_of_birth,
       gender,
-      address || null,
-      pursuingBool ? 1 : 0,
-      pursuingBool ? (hs_course_name || null) : null,
-      pursuingBool ? (hs_institution_name || null) : null,
-      employedBool ? 1 : 0,
+      guardian_name,
+      nationality,
+      religion,
+      email || null,
+      mobile_number,
+      place_of_birth,
+      community,
+      mother_tongue,
+      req.files.applicant_photo[0].path,
+      aadhar_number,
+      req.files.aadhar_copy[0].path,
+      req.files.residence_certificate[0].path,
+      degree_name,
+      university_name,
+      degree_pattern,
+      convocation_year,
+      req.files.degree_certificate[0].path,
+      is_registered_graduate ? 1 : 0,
+      req.files?.other_university_certificate ? req.files.other_university_certificate[0].path : null,
+      occupation,
+      address,
+      req.files.signature[0].path,
+      toBool(declaration) ? 1 : 0,
       lunch_required,
-      companion_option,
-      order_id, // Store order_id instead of session_id
-      payment_id, // Store payment_id for reference
+      companion_option
     ];
 
     db.run(
       `
-      INSERT INTO students
-        (name, university_register_no, college_roll_no, degree, course, whatsapp_number, email, gender, address,
-         pursuing_higher_studies, hs_course_name, hs_institution_name, employed, lunch_required, companion_option, razorpay_order_id, razorpay_payment_id,
-         created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+      INSERT INTO students (
+        full_name, date_of_birth, gender, guardian_name, nationality, religion, email, mobile_number,
+        place_of_birth, community, mother_tongue, applicant_photo_path, aadhar_number, aadhar_copy_path,
+        residence_certificate_path, degree_name, university_name, degree_pattern, convocation_year,
+        degree_certificate_path, is_registered_graduate, other_university_certificate_path, occupation,
+        address, signature_path, declaration, lunch_required, companion_option, created_at, updated_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
       `,
       params,
       function (err) {
         if (err) {
           if (String(err.message).includes('UNIQUE')) {
-            if (err.message.includes('university_register_no')) {
-              return res.status(409).json({ error: 'Student with this university_register_no already exists' });
-            }
             if (err.message.includes('email')) {
               return res.status(409).json({ error: 'Email is already registered' });
             }
           }
-          console.error('DB insert error:', err.message);
+          console.error('DB insert error:', err.message, err.stack);
           return res.status(500).json({ error: 'Failed to register' });
         }
+        console.log('Registration successful:', { id: this.lastID });
         return res.status(200).json({ message: 'Registered successfully', id: this.lastID });
       }
     );
@@ -226,36 +225,140 @@ exports.register = (req, res) => {
 exports.list = (req, res) => {
   db.all(`SELECT * FROM students ORDER BY created_at DESC`, [], (err, rows) => {
     if (err) {
-      console.error('DB fetch error:', err.message);
+      console.error('DB fetch error:', err.message, err.stack);
       return res.status(500).json({ error: 'Failed to fetch' });
     }
     res.json(rows);
   });
 };
 
-exports.checkRegisterNo = (req, res) => {
-  const { university_register_no } = req.query;
-  
-  // Input validation and sanitization
-  if (!university_register_no || typeof university_register_no !== 'string' || university_register_no.trim() === '') {
-    return res.status(400).json({ error: 'Valid university register number is required' });
+exports.uploadFile = (req, res) => {
+  singleUpload(req, res, (err) => {
+    if (err) {
+      console.error('Multer error:', err.message, err.stack);
+      return res.status(400).json({ error: err.message });
+    }
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+    console.log('File uploaded:', { file_path: req.file.path, filename: req.file.filename });
+    res.status(200).json({
+      message: 'File uploaded successfully',
+      file_path: req.file.path,
+      filename: req.file.filename
+    });
+  });
+};
+
+exports.getFile = (req, res) => {
+  const { studentId, fileType } = req.params;
+  const validFileTypes = [
+    'applicant_photo',
+    'aadhar_copy',
+    'residence_certificate',
+    'degree_certificate',
+    'other_university_certificate',
+    'signature'
+  ];
+
+  if (!validFileTypes.includes(fileType)) {
+    console.error(`Invalid file type requested: ${fileType}`);
+    return res.status(400).json({ error: 'Invalid file type' });
   }
 
-  // Sanitize input to prevent SQL injection (basic trim and escape)
-  const sanitizedRegisterNo = university_register_no.trim();
-  
-  // Debug log to confirm endpoint is hit
-  console.log('Checking university register number:', sanitizedRegisterNo);
+  if (!studentId || isNaN(studentId)) {
+    console.error(`Invalid studentId: ${studentId}`);
+    return res.status(400).json({ error: 'Valid student ID is required' });
+  }
+
+  db.get(`SELECT ${fileType}_path FROM students WHERE id = ?`, [studentId], (err, row) => {
+    if (err) {
+      console.error('DB fetch error for file:', err.message, err.stack);
+      return res.status(500).json({ error: 'Failed to fetch file' });
+    }
+    if (!row || !row[`${fileType}_path`]) {
+      console.error(`File not found for studentId: ${studentId}, fileType: ${fileType}`);
+      return res.status(404).json({ error: 'File not found' });
+    }
+
+    const filePath = row[`${fileType}_path`];
+    if (!fs.existsSync(filePath)) {
+      console.error(`File does not exist on server: ${filePath}`);
+      return res.status(404).json({ error: 'File not found on server' });
+    }
+
+    const mimeType = path.extname(filePath).toLowerCase() === '.pdf' ? 'application/pdf' :
+                     (path.extname(filePath).toLowerCase() === '.png' ? 'image/png' : 'image/jpeg');
+    res.setHeader('Content-Type', mimeType);
+    res.setHeader('Content-Disposition', `attachment; filename=${fileType}${path.extname(filePath)}`);
+    fs.createReadStream(filePath).pipe(res);
+  });
+};
+
+exports.getAllFiles = (req, res) => {
+  const { studentId } = req.params;
+
+  if (!studentId || isNaN(studentId)) {
+    console.error(`Invalid studentId: ${studentId}`);
+    return res.status(400).json({ error: 'Valid student ID is required' });
+  }
 
   db.get(
-    `SELECT university_register_no FROM students WHERE university_register_no = ?`,
-    [sanitizedRegisterNo],
+    `SELECT full_name, applicant_photo_path, aadhar_copy_path, residence_certificate_path, degree_certificate_path, 
+            other_university_certificate_path, signature_path 
+     FROM students WHERE id = ?`,
+    [studentId],
     (err, row) => {
       if (err) {
-        console.error('DB fetch error for register number:', err.message, { university_register_no: sanitizedRegisterNo });
-        return res.status(500).json({ error: 'Failed to check register number' });
+        console.error('DB fetch error for files:', err.message, err.stack);
+        return res.status(500).json({ error: 'Failed to fetch files' });
       }
-      return res.status(200).json({ exists: !!row });
+      if (!row) {
+        console.error(`Student not found for studentId: ${studentId}`);
+        return res.status(404).json({ error: 'Student not found' });
+      }
+
+      const filePaths = [
+        { path: row.applicant_photo_path, name: 'applicant_photo.jpg' },
+        { path: row.aadhar_copy_path, name: 'aadhar_copy.pdf' },
+        { path: row.residence_certificate_path, name: 'residence_certificate.pdf' },
+        { path: row.degree_certificate_path, name: 'degree_certificate.pdf' },
+        { path: row.other_university_certificate_path, name: 'other_university_certificate.pdf' },
+        { path: row.signature_path, name: 'signature.jpg' }
+      ].filter(file => file.path && fs.existsSync(file.path));
+
+      if (filePaths.length === 0) {
+        console.error(`No valid files found for studentId: ${studentId}`);
+        return res.status(404).json({ error: 'No files found for this student' });
+      }
+
+      const studentName = row.full_name.replace(/\s+/g, '_').replace(/[^a-zA-Z0-9_-]/g, '');
+      res.setHeader('Content-Type', 'application/zip');
+      res.setHeader('Content-Disposition', `attachment; filename=${studentName}_documents.zip`);
+
+      const archive = archiver('zip', { zlib: { level: 9 } });
+      archive.on('error', (err) => {
+        console.error('Archiver error:', err.message, err.stack);
+        res.status(500).json({ error: 'Failed to create zip file' });
+      });
+
+      archive.on('warning', (err) => {
+        console.warn('Archiver warning:', err.message);
+      });
+
+      archive.pipe(res);
+
+      filePaths.forEach(file => {
+        console.log(`Adding file to ZIP: ${file.path} as ${file.name}`);
+        archive.file(file.path, { name: file.name });
+      });
+
+      archive.finalize().catch(err => {
+        console.error('Error finalizing ZIP archive:', err.message, err.stack);
+        res.status(500).json({ error: 'Failed to finalize zip file' });
+      });
     }
   );
 };
+
+module.exports = exports;
