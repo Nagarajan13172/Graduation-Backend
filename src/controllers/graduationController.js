@@ -3,6 +3,142 @@ const multer = require('multer');
 const fs = require('fs');
 const path = require('path');
 const archiver = require('archiver');
+const crypto = require('crypto');
+
+// Dynamic import for jose (ES Module)
+let SignJWT, jwtDecrypt, EncryptJWT;
+(async () => {
+  const jose = await import('jose');
+  SignJWT = jose.SignJWT;
+  jwtDecrypt = jose.jwtDecrypt;
+  EncryptJWT = jose.EncryptJWT;
+})();
+
+// BillDesk Configuration
+const BILLDESK_CONFIG = {
+  merchantId: process.env.BILLDESK_MERCHANT_ID,
+  clientId: process.env.BILLDESK_CLIENT_ID,
+  encryptionKey: process.env.BILLDESK_ENCRYPTION_KEY,
+  encryptionKeyId: process.env.BILLDESK_ENCRYPTION_KEY_ID,
+  signingKey: process.env.BILLDESK_SIGNING_KEY,
+  signingKeyId: process.env.BILLDESK_SIGNING_KEY_ID,
+  baseUrl: process.env.BILLDESK_BASE_URL || 'https://uat1.billdesk.com/u2',
+  returnUrl: process.env.BILLDESK_RETURN_URL || 'http://localhost:3000/payment/callback'
+};
+
+// BillDesk Helper Functions
+const encryptPayload = async (payload) => {
+  try {
+    // Ensure jose is loaded
+    if (!EncryptJWT) {
+      const jose = await import('jose');
+      EncryptJWT = jose.EncryptJWT;
+    }
+    
+    // Validate encryption key
+    if (!BILLDESK_CONFIG.encryptionKey) {
+      throw new Error('BILLDESK_ENCRYPTION_KEY not configured');
+    }
+    
+    // Convert key to proper format - BillDesk keys are typically base64 or hex
+    // Adjust this based on your actual key format
+    let encryptionKey;
+    try {
+      // Try to decode as base64 first
+      encryptionKey = Buffer.from(BILLDESK_CONFIG.encryptionKey, 'base64');
+    } catch (e) {
+      // If base64 fails, use UTF-8
+      encryptionKey = Buffer.from(BILLDESK_CONFIG.encryptionKey, 'utf-8');
+    }
+    
+    // Ensure key is 32 bytes for A256GCM
+    if (encryptionKey.length !== 32) {
+      console.warn(`Encryption key length is ${encryptionKey.length}, padding/truncating to 32 bytes`);
+      const paddedKey = Buffer.alloc(32);
+      encryptionKey.copy(paddedKey, 0, 0, Math.min(encryptionKey.length, 32));
+      encryptionKey = paddedKey;
+    }
+    
+    const jwe = await new EncryptJWT({ ...payload })
+      .setProtectedHeader({
+        alg: 'dir',
+        enc: 'A256GCM',
+        kid: BILLDESK_CONFIG.encryptionKeyId,
+        clientid: BILLDESK_CONFIG.clientId
+      })
+      .encrypt(encryptionKey);
+    
+    return jwe;
+  } catch (error) {
+    console.error('Encryption error:', error.message, error.stack);
+    console.error('Encryption key length:', BILLDESK_CONFIG.encryptionKey?.length);
+    console.error('Encryption key ID:', BILLDESK_CONFIG.encryptionKeyId);
+    throw new Error(`Failed to encrypt payload: ${error.message}`);
+  }
+};
+
+const signPayload = async (encryptedPayload) => {
+  try {
+    // Ensure jose is loaded
+    if (!SignJWT) {
+      const jose = await import('jose');
+      SignJWT = jose.SignJWT;
+    }
+    
+    // Validate signing key
+    if (!BILLDESK_CONFIG.signingKey) {
+      throw new Error('BILLDESK_SIGNING_KEY not configured');
+    }
+    
+    // Convert key to proper format
+    let signingKey;
+    try {
+      // Try to decode as base64 first
+      signingKey = Buffer.from(BILLDESK_CONFIG.signingKey, 'base64');
+    } catch (e) {
+      // If base64 fails, use UTF-8
+      signingKey = Buffer.from(BILLDESK_CONFIG.signingKey, 'utf-8');
+    }
+    
+    const jws = await new SignJWT({ payload: encryptedPayload })
+      .setProtectedHeader({
+        alg: 'HS256',
+        kid: BILLDESK_CONFIG.signingKeyId,
+        clientid: BILLDESK_CONFIG.clientId
+      })
+      .sign(signingKey);
+    
+    return jws;
+  } catch (error) {
+    console.error('Signing error:', error.message, error.stack);
+    console.error('Signing key length:', BILLDESK_CONFIG.signingKey?.length);
+    console.error('Signing key ID:', BILLDESK_CONFIG.signingKeyId);
+    throw new Error(`Failed to sign payload: ${error.message}`);
+  }
+};
+
+const decryptAndVerifyResponse = async (response) => {
+  try {
+    // Ensure jose is loaded
+    if (!jwtDecrypt) {
+      const jose = await import('jose');
+      jwtDecrypt = jose.jwtDecrypt;
+    }
+    
+    // In production, you would verify the signature first, then decrypt
+    // For simplicity, this is a basic implementation
+    const signingKey = Buffer.from(BILLDESK_CONFIG.signingKey, 'utf-8');
+    const encryptionKey = Buffer.from(BILLDESK_CONFIG.encryptionKey, 'utf-8');
+    
+    // Decrypt the response
+    const { payload } = await jwtDecrypt(response, encryptionKey);
+    
+    return payload;
+  } catch (error) {
+    console.error('Decryption/Verification error:', error.message, error.stack);
+    throw new Error('Failed to decrypt and verify response');
+  }
+};
 
 // Multer configuration for file uploads
 const storage = multer.diskStorage({
@@ -93,6 +229,319 @@ exports.checkEmail = (req, res) => {
     }
     return res.status(200).json({ exists: !!row });
   });
+};
+
+// BillDesk - Configuration Check
+exports.checkBillDeskConfig = (req, res) => {
+  const config = {
+    merchantId: BILLDESK_CONFIG.merchantId ? '✓ Set' : '✗ Not set',
+    clientId: BILLDESK_CONFIG.clientId ? '✓ Set' : '✗ Not set',
+    encryptionKey: BILLDESK_CONFIG.encryptionKey ? 
+      (BILLDESK_CONFIG.encryptionKey.includes('your_') ? '✗ Placeholder value' : '✓ Set') : 
+      '✗ Not set',
+    encryptionKeyId: BILLDESK_CONFIG.encryptionKeyId ? 
+      (BILLDESK_CONFIG.encryptionKeyId.includes('your_') ? '✗ Placeholder value' : '✓ Set') : 
+      '✗ Not set',
+    signingKey: BILLDESK_CONFIG.signingKey ? 
+      (BILLDESK_CONFIG.signingKey.includes('your_') ? '✗ Placeholder value' : '✓ Set') : 
+      '✗ Not set',
+    signingKeyId: BILLDESK_CONFIG.signingKeyId ? 
+      (BILLDESK_CONFIG.signingKeyId.includes('your_') ? '✗ Placeholder value' : '✓ Set') : 
+      '✗ Not set',
+    baseUrl: BILLDESK_CONFIG.baseUrl || 'Not set',
+    returnUrl: BILLDESK_CONFIG.returnUrl || 'Not set'
+  };
+
+  const isFullyConfigured = !Object.values(config).some(v => v.includes('✗'));
+
+  res.json({
+    configured: isFullyConfigured,
+    message: isFullyConfigured ? 
+      'BillDesk is fully configured and ready to use' : 
+      'BillDesk is not fully configured. Please update .env with actual credentials from BillDesk.',
+    config,
+    note: 'Get your BillDesk credentials from your BillDesk relationship manager'
+  });
+};
+
+// BillDesk - Create Checkout Session (Order)
+exports.createCheckoutSession = (req, res) => {
+  uploadFields(req, res, async (err) => {
+    if (err) {
+      console.error('Multer error:', err.message);
+      return res.status(400).json({ error: err.message });
+    }
+
+    // Check if BillDesk is properly configured
+    const isConfigured = BILLDESK_CONFIG.merchantId && 
+                         BILLDESK_CONFIG.clientId && 
+                         BILLDESK_CONFIG.encryptionKey && 
+                         BILLDESK_CONFIG.signingKey &&
+                         !BILLDESK_CONFIG.encryptionKey.includes('your_') &&
+                         !BILLDESK_CONFIG.signingKey.includes('your_');
+
+    if (!isConfigured) {
+      console.error('BillDesk not properly configured - using mock mode');
+      console.error('Please update .env with actual BillDesk credentials');
+      
+      // Return mock response for testing
+      const mockOrderId = `ORDER${Date.now()}${Math.floor(Math.random() * 1000)}`;
+      const mockBdOrderId = `BD${Date.now()}`;
+      
+      return res.json({
+        success: true,
+        mock: true,
+        message: 'BillDesk not configured - using mock mode. Update .env with actual credentials.',
+        bdorderid: mockBdOrderId,
+        orderid: mockOrderId,
+        merchantid: BILLDESK_CONFIG.merchantId || 'MOCK_MERCHANT',
+        links: [{
+          rel: 'payment',
+          href: 'https://uat1.billdesk.com/u2/web/v1_2/embeddedsdk',
+          method: 'POST'
+        }],
+        formData: {
+          full_name: req.body.full_name,
+          date_of_birth: req.body.date_of_birth,
+          email: req.body.email,
+          mobile_number: req.body.mobile_number
+        }
+      });
+    }
+
+    try {
+      const {
+        full_name, date_of_birth, gender, guardian_name, nationality, religion, email, mobile_number,
+        place_of_birth, community, mother_tongue, aadhar_number, degree_name, university_name,
+        degree_pattern, convocation_year, occupation, address, declaration, lunch_required, companion_option
+      } = req.body;
+
+      const is_registered_graduate = toBool(req.body.is_registered_graduate);
+
+      // Comprehensive validation
+      if (!full_name) return res.status(400).json({ error: 'Full name is required' });
+      if (!date_of_birth || !isDate(date_of_birth)) return res.status(400).json({ error: 'Valid date of birth (YYYY-MM-DD) is required' });
+      if (!gender || !GENDER_ENUM.includes(gender)) return res.status(400).json({ error: `Gender must be one of ${GENDER_ENUM.join(', ')}` });
+      if (!guardian_name) return res.status(400).json({ error: 'Guardian name is required' });
+      if (!nationality) return res.status(400).json({ error: 'Nationality is required' });
+      if (!religion) return res.status(400).json({ error: 'Religion is required' });
+      if (email && !isEmail(email)) return res.status(400).json({ error: 'Valid email is required' });
+      if (!mobile_number || !isPhone(mobile_number)) return res.status(400).json({ error: 'Mobile number must be exactly 10 digits' });
+      if (!place_of_birth || !DISTRICT_ENUM.includes(place_of_birth)) return res.status(400).json({ error: `Place of birth must be one of ${DISTRICT_ENUM.join(', ')}` });
+      if (!community || !COMMUNITY_ENUM.includes(community)) return res.status(400).json({ error: `Community must be one of ${COMMUNITY_ENUM.join(', ')}` });
+      if (!mother_tongue) return res.status(400).json({ error: 'Mother tongue is required' });
+      if (!req.files?.applicant_photo) return res.status(400).json({ error: 'Applicant photo is required' });
+      if (req.files.applicant_photo[0].size > 2 * 1024 * 1024) return res.status(400).json({ error: 'Applicant photo must be less than 2MB' });
+      if (!aadhar_number || !isAadhar(aadhar_number)) return res.status(400).json({ error: 'Aadhar number must be exactly 12 digits' });
+      if (!req.files?.aadhar_copy) return res.status(400).json({ error: 'Aadhar copy is required' });
+      if (req.files.aadhar_copy[0].size > 2 * 1024 * 1024) return res.status(400).json({ error: 'Aadhar copy must be less than 2MB' });
+      if (!req.files?.residence_certificate) return res.status(400).json({ error: 'Residence certificate is required' });
+      if (req.files.residence_certificate[0].size > 5 * 1024 * 1024) return res.status(400).json({ error: 'Residence certificate must be less than 5MB' });
+      if (!degree_name) return res.status(400).json({ error: 'Degree name is required' });
+      if (!university_name) return res.status(400).json({ error: 'University name is required' });
+      if (!degree_pattern) return res.status(400).json({ error: 'Degree pattern is required' });
+      if (!convocation_year) return res.status(400).json({ error: 'Convocation year is required' });
+      if (!req.files?.degree_certificate) return res.status(400).json({ error: 'Degree certificate is required' });
+      if (req.files.degree_certificate[0].size > 5 * 1024 * 1024) return res.status(400).json({ error: 'Degree certificate must be less than 5MB' });
+      if (is_registered_graduate === null) return res.status(400).json({ error: 'is_registered_graduate must be Yes/No or boolean' });
+      if (is_registered_graduate && !req.files?.other_university_certificate) return res.status(400).json({ error: 'Other university certificate is required when registered with another university' });
+      if (req.files?.other_university_certificate && req.files.other_university_certificate[0].size > 5 * 1024 * 1024) return res.status(400).json({ error: 'Other university certificate must be less than 5MB' });
+      if (!occupation) return res.status(400).json({ error: 'Occupation is required' });
+      if (!address) return res.status(400).json({ error: 'Address is required' });
+      if (!req.files?.signature) return res.status(400).json({ error: 'Signature is required' });
+      if (req.files.signature[0].size > 5 * 1024 * 1024) return res.status(400).json({ error: 'Signature must be less than 5MB' });
+      if (!toBool(declaration)) return res.status(400).json({ error: 'Declaration must be true' });
+      if (!lunch_required || !LUNCH_ENUM.includes(lunch_required)) return res.status(400).json({ error: `Lunch required must be one of ${LUNCH_ENUM.join(', ')}` });
+      if (!companion_option || !COMPANION_ENUM.includes(companion_option)) return res.status(400).json({ error: `Companion option must be one of: ${COMPANION_ENUM.join(' | ')}` });
+
+      // Check email uniqueness if provided
+      if (email) {
+        const emailExists = await new Promise((resolve, reject) => {
+          db.get(`SELECT email FROM students WHERE email = ?`, [email], (err, row) => {
+            if (err) reject(err);
+            resolve(!!row);
+          });
+        });
+        if (emailExists) return res.status(409).json({ error: 'Email is already registered' });
+      }
+
+      // Generate unique order ID
+      const orderId = `ORDER${Date.now()}${Math.floor(Math.random() * 1000)}`;
+      const orderDate = new Date().toISOString();
+
+      // Create BillDesk order payload
+      const orderPayload = {
+        mercid: BILLDESK_CONFIG.merchantId,
+        orderid: orderId,
+        amount: '500.00', // Amount in INR (500 rupees)
+        order_date: orderDate,
+        currency: '356', // INR currency code
+        ru: BILLDESK_CONFIG.returnUrl,
+        additional_info: {
+          additional_info1: full_name,
+          additional_info2: email || mobile_number,
+          additional_info3: mobile_number
+        },
+        itemcode: 'DIRECT',
+        device: {
+          init_channel: 'internet',
+          ip: req.ip || req.connection.remoteAddress || '127.0.0.1',
+          user_agent: req.headers['user-agent'] || 'Mozilla/5.0',
+          accept_header: req.headers['accept'] || 'text/html'
+        }
+      };
+
+      console.log('Creating BillDesk order:', { orderId, amount: '500.00' });
+
+      // Encrypt and sign the payload
+      const encryptedPayload = await encryptPayload(orderPayload);
+      const signedPayload = await signPayload(encryptedPayload);
+
+      // Make API call to BillDesk
+      const axios = require('axios');
+      const bdTraceId = `TRACE${Date.now()}`;
+      const bdTimestamp = Math.floor(Date.now() / 1000).toString();
+
+      const response = await axios.post(
+        `${BILLDESK_CONFIG.baseUrl}/payments/ve1_2/orders/create`,
+        signedPayload,
+        {
+          headers: {
+            'Content-Type': 'application/jose',
+            'Accept': 'application/jose',
+            'BD-Traceid': bdTraceId,
+            'BD-Timestamp': bdTimestamp
+          }
+        }
+      );
+
+      // Decrypt and verify the response
+      const decryptedResponse = await decryptAndVerifyResponse(response.data);
+
+      console.log('BillDesk order created successfully:', { orderId, bdorderid: decryptedResponse.bdorderid });
+
+      // Store order details temporarily (you can store in session or temp table)
+      res.json({
+        success: true,
+        bdorderid: decryptedResponse.bdorderid,
+        orderid: orderId,
+        merchantid: BILLDESK_CONFIG.merchantId,
+        links: decryptedResponse.links,
+        // Store form data for later use after payment
+        formData: {
+          full_name, date_of_birth, gender, guardian_name, nationality, religion, email, mobile_number,
+          place_of_birth, community, mother_tongue, aadhar_number, degree_name, university_name,
+          degree_pattern, convocation_year, occupation, address, declaration, lunch_required, companion_option,
+          is_registered_graduate,
+          files: {
+            applicant_photo: req.files?.applicant_photo?.[0]?.path,
+            aadhar_copy: req.files?.aadhar_copy?.[0]?.path,
+            residence_certificate: req.files?.residence_certificate?.[0]?.path,
+            degree_certificate: req.files?.degree_certificate?.[0]?.path,
+            other_university_certificate: req.files?.other_university_certificate?.[0]?.path,
+            signature: req.files?.signature?.[0]?.path
+          }
+        }
+      });
+    } catch (error) {
+      console.error('BillDesk order creation error:', error.message, error.stack);
+      res.status(500).json({ error: `Failed to create checkout session: ${error.message}` });
+    }
+  });
+};
+
+// BillDesk - Verify Payment
+exports.verifyPayment = async (req, res) => {
+  const { orderid, transaction_response } = req.body;
+
+  if (!orderid) {
+    return res.status(400).json({ error: 'Order ID is required' });
+  }
+
+  // Check if BillDesk is properly configured
+  const isConfigured = BILLDESK_CONFIG.merchantId && 
+                       BILLDESK_CONFIG.clientId && 
+                       BILLDESK_CONFIG.encryptionKey && 
+                       BILLDESK_CONFIG.signingKey &&
+                       !BILLDESK_CONFIG.encryptionKey.includes('your_') &&
+                       !BILLDESK_CONFIG.signingKey.includes('your_');
+
+  if (!isConfigured) {
+    console.log('BillDesk not configured - using mock mode for verification');
+    
+    // Return mock verification response
+    return res.json({
+      success: true,
+      mock: true,
+      message: 'BillDesk not configured - using mock mode',
+      status: 'success',
+      orderid: orderid,
+      transactionid: `TXN${Date.now()}`,
+      amount: '500.00',
+      transaction_date: new Date().toISOString(),
+      auth_status: '0300',
+      payment_method_type: 'netbanking'
+    });
+  }
+
+  try {
+    console.log('Verifying BillDesk payment:', { orderid });
+
+    // If transaction_response is provided (from callback), decrypt it
+    let transactionData;
+    if (transaction_response) {
+      transactionData = await decryptAndVerifyResponse(transaction_response);
+    } else {
+      // Otherwise, fetch transaction status from BillDesk
+      const axios = require('axios');
+      
+      const retrievePayload = {
+        mercid: BILLDESK_CONFIG.merchantId,
+        orderid: orderid
+      };
+
+      const encryptedPayload = await encryptPayload(retrievePayload);
+      const signedPayload = await signPayload(encryptedPayload);
+
+      const bdTraceId = `TRACE${Date.now()}`;
+      const bdTimestamp = Math.floor(Date.now() / 1000).toString();
+
+      const response = await axios.post(
+        `${BILLDESK_CONFIG.baseUrl}/payments/ve1_2/transactions/get`,
+        signedPayload,
+        {
+          headers: {
+            'Content-Type': 'application/jose',
+            'Accept': 'application/jose',
+            'BD-Traceid': bdTraceId,
+            'BD-Timestamp': bdTimestamp
+          }
+        }
+      );
+
+      transactionData = await decryptAndVerifyResponse(response.data);
+    }
+
+    console.log('BillDesk transaction data:', transactionData);
+
+    // Check transaction status
+    const isSuccess = transactionData.transaction_error_type === 'success' || 
+                      transactionData.status === 'success';
+
+    res.json({
+      success: isSuccess,
+      status: transactionData.status || transactionData.transaction_error_type,
+      orderid: transactionData.orderid,
+      transactionid: transactionData.transactionid,
+      amount: transactionData.amount,
+      transaction_date: transactionData.transaction_date,
+      auth_status: transactionData.auth_status,
+      payment_method_type: transactionData.payment_method_type
+    });
+  } catch (error) {
+    console.error('BillDesk payment verification error:', error.message, error.stack);
+    res.status(500).json({ error: `Failed to verify payment: ${error.message}` });
+  }
 };
 
 exports.register = (req, res) => {

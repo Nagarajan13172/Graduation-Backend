@@ -2,16 +2,12 @@ const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
 
 const DB_PATH = process.env.DB_PATH || path.join(__dirname, '..', 'graduation.db');
-const db = new sqlite3.Database(DB_PATH, (err) => {
-  if (err) {
-    console.error('Error connecting to database:', err.message);
-  } else {
-    console.log('Connected to SQLite database:', DB_PATH);
-  }
-});
+const db = new sqlite3.Database(DB_PATH);
 
-// Simple initialization - create table if not exists
+console.log('Initializing database...');
+
 db.serialize(() => {
+  // Create students table with all required fields
   db.run(`
     CREATE TABLE IF NOT EXISTS students (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -62,9 +58,15 @@ db.serialize(() => {
     if (err) {
       console.error('Error creating students table:', err.message);
     } else {
-      console.log('Students table ready');
+      console.log('Students table created successfully');
     }
   });
 });
 
-module.exports = db;
+db.close((err) => {
+  if (err) {
+    console.error('Error closing database:', err.message);
+  } else {
+    console.log('Database initialization complete');
+  }
+});
