@@ -3,142 +3,11 @@ const multer = require('multer');
 const fs = require('fs');
 const path = require('path');
 const archiver = require('archiver');
-const crypto = require('crypto');
+const axios = require('axios');
+const { billdesk } = require('../../server/billdesk');
 
-// Dynamic import for jose (ES Module)
-let SignJWT, jwtDecrypt, EncryptJWT;
-(async () => {
-  const jose = await import('jose');
-  SignJWT = jose.SignJWT;
-  jwtDecrypt = jose.jwtDecrypt;
-  EncryptJWT = jose.EncryptJWT;
-})();
-
-// BillDesk Configuration
-const BILLDESK_CONFIG = {
-  merchantId: process.env.BILLDESK_MERCHANT_ID,
-  clientId: process.env.BILLDESK_CLIENT_ID,
-  encryptionKey: process.env.BILLDESK_ENCRYPTION_KEY,
-  encryptionKeyId: process.env.BILLDESK_ENCRYPTION_KEY_ID,
-  signingKey: process.env.BILLDESK_SIGNING_KEY,
-  signingKeyId: process.env.BILLDESK_SIGNING_KEY_ID,
-  baseUrl: process.env.BILLDESK_BASE_URL || 'https://uat1.billdesk.com/u2',
-  returnUrl: process.env.BILLDESK_RETURN_URL || 'http://localhost:3000/payment/callback'
-};
-
-// BillDesk Helper Functions
-const encryptPayload = async (payload) => {
-  try {
-    // Ensure jose is loaded
-    if (!EncryptJWT) {
-      const jose = await import('jose');
-      EncryptJWT = jose.EncryptJWT;
-    }
-    
-    // Validate encryption key
-    if (!BILLDESK_CONFIG.encryptionKey) {
-      throw new Error('BILLDESK_ENCRYPTION_KEY not configured');
-    }
-    
-    // Convert key to proper format - BillDesk keys are typically base64 or hex
-    // Adjust this based on your actual key format
-    let encryptionKey;
-    try {
-      // Try to decode as base64 first
-      encryptionKey = Buffer.from(BILLDESK_CONFIG.encryptionKey, 'base64');
-    } catch (e) {
-      // If base64 fails, use UTF-8
-      encryptionKey = Buffer.from(BILLDESK_CONFIG.encryptionKey, 'utf-8');
-    }
-    
-    // Ensure key is 32 bytes for A256GCM
-    if (encryptionKey.length !== 32) {
-      console.warn(`Encryption key length is ${encryptionKey.length}, padding/truncating to 32 bytes`);
-      const paddedKey = Buffer.alloc(32);
-      encryptionKey.copy(paddedKey, 0, 0, Math.min(encryptionKey.length, 32));
-      encryptionKey = paddedKey;
-    }
-    
-    const jwe = await new EncryptJWT({ ...payload })
-      .setProtectedHeader({
-        alg: 'dir',
-        enc: 'A256GCM',
-        kid: BILLDESK_CONFIG.encryptionKeyId,
-        clientid: BILLDESK_CONFIG.clientId
-      })
-      .encrypt(encryptionKey);
-    
-    return jwe;
-  } catch (error) {
-    console.error('Encryption error:', error.message, error.stack);
-    console.error('Encryption key length:', BILLDESK_CONFIG.encryptionKey?.length);
-    console.error('Encryption key ID:', BILLDESK_CONFIG.encryptionKeyId);
-    throw new Error(`Failed to encrypt payload: ${error.message}`);
-  }
-};
-
-const signPayload = async (encryptedPayload) => {
-  try {
-    // Ensure jose is loaded
-    if (!SignJWT) {
-      const jose = await import('jose');
-      SignJWT = jose.SignJWT;
-    }
-    
-    // Validate signing key
-    if (!BILLDESK_CONFIG.signingKey) {
-      throw new Error('BILLDESK_SIGNING_KEY not configured');
-    }
-    
-    // Convert key to proper format
-    let signingKey;
-    try {
-      // Try to decode as base64 first
-      signingKey = Buffer.from(BILLDESK_CONFIG.signingKey, 'base64');
-    } catch (e) {
-      // If base64 fails, use UTF-8
-      signingKey = Buffer.from(BILLDESK_CONFIG.signingKey, 'utf-8');
-    }
-    
-    const jws = await new SignJWT({ payload: encryptedPayload })
-      .setProtectedHeader({
-        alg: 'HS256',
-        kid: BILLDESK_CONFIG.signingKeyId,
-        clientid: BILLDESK_CONFIG.clientId
-      })
-      .sign(signingKey);
-    
-    return jws;
-  } catch (error) {
-    console.error('Signing error:', error.message, error.stack);
-    console.error('Signing key length:', BILLDESK_CONFIG.signingKey?.length);
-    console.error('Signing key ID:', BILLDESK_CONFIG.signingKeyId);
-    throw new Error(`Failed to sign payload: ${error.message}`);
-  }
-};
-
-const decryptAndVerifyResponse = async (response) => {
-  try {
-    // Ensure jose is loaded
-    if (!jwtDecrypt) {
-      const jose = await import('jose');
-      jwtDecrypt = jose.jwtDecrypt;
-    }
-    
-    // In production, you would verify the signature first, then decrypt
-    // For simplicity, this is a basic implementation
-    const signingKey = Buffer.from(BILLDESK_CONFIG.signingKey, 'utf-8');
-    const encryptionKey = Buffer.from(BILLDESK_CONFIG.encryptionKey, 'utf-8');
-    
-    // Decrypt the response
-    const { payload } = await jwtDecrypt(response, encryptionKey);
-    
-    return payload;
-  } catch (error) {
-    console.error('Decryption/Verification error:', error.message, error.stack);
-    throw new Error('Failed to decrypt and verify response');
-  }
-};
+// Get return URL from environment
+const RU_PUBLIC = process.env.RU_PUBLIC || 'http://localhost:3000/payment/result';
 
 // Multer configuration for file uploads
 const storage = multer.diskStorage({
@@ -234,22 +103,17 @@ exports.checkEmail = (req, res) => {
 // BillDesk - Configuration Check
 exports.checkBillDeskConfig = (req, res) => {
   const config = {
-    merchantId: BILLDESK_CONFIG.merchantId ? '✓ Set' : '✗ Not set',
-    clientId: BILLDESK_CONFIG.clientId ? '✓ Set' : '✗ Not set',
-    encryptionKey: BILLDESK_CONFIG.encryptionKey ? 
-      (BILLDESK_CONFIG.encryptionKey.includes('your_') ? '✗ Placeholder value' : '✓ Set') : 
+    mercId: billdesk.mercId ? 
+      (billdesk.mercId.includes('your_') ? '✗ Placeholder value' : '✓ Set') : 
       '✗ Not set',
-    encryptionKeyId: BILLDESK_CONFIG.encryptionKeyId ? 
-      (BILLDESK_CONFIG.encryptionKeyId.includes('your_') ? '✗ Placeholder value' : '✓ Set') : 
+    clientId: billdesk.clientId ? 
+      (billdesk.clientId.includes('your_') ? '✗ Placeholder value' : '✓ Set') : 
       '✗ Not set',
-    signingKey: BILLDESK_CONFIG.signingKey ? 
-      (BILLDESK_CONFIG.signingKey.includes('your_') ? '✗ Placeholder value' : '✓ Set') : 
+    secret: process.env.BILLDESK_SECRET ? 
+      (process.env.BILLDESK_SECRET.includes('your_') ? '✗ Placeholder value' : '✓ Set') : 
       '✗ Not set',
-    signingKeyId: BILLDESK_CONFIG.signingKeyId ? 
-      (BILLDESK_CONFIG.signingKeyId.includes('your_') ? '✗ Placeholder value' : '✓ Set') : 
-      '✗ Not set',
-    baseUrl: BILLDESK_CONFIG.baseUrl || 'Not set',
-    returnUrl: BILLDESK_CONFIG.returnUrl || 'Not set'
+    baseUrl: billdesk.baseUrl || 'Not set',
+    returnUrl: RU_PUBLIC || 'Not set'
   };
 
   const isFullyConfigured = !Object.values(config).some(v => v.includes('✗'));
@@ -272,20 +136,16 @@ exports.createCheckoutSession = (req, res) => {
       return res.status(400).json({ error: err.message });
     }
 
-    // Check if BillDesk is properly configured
-    const isConfigured = BILLDESK_CONFIG.merchantId && 
-                         BILLDESK_CONFIG.clientId && 
-                         BILLDESK_CONFIG.encryptionKey && 
-                         BILLDESK_CONFIG.signingKey &&
-                         !BILLDESK_CONFIG.encryptionKey.includes('your_') &&
-                         !BILLDESK_CONFIG.signingKey.includes('your_');
+    // Check if BillDesk is configured
+    const isConfigured = billdesk.mercId && 
+                         billdesk.clientId && 
+                         process.env.BILLDESK_SECRET &&
+                         !billdesk.mercId.includes('your_') &&
+                         !process.env.BILLDESK_SECRET.includes('your_');
 
     if (!isConfigured) {
-      console.error('BillDesk not properly configured - using mock mode');
-      console.error('Please update .env with actual BillDesk credentials');
-      
-      // Return mock response for testing
-      const mockOrderId = `ORDER${Date.now()}${Math.floor(Math.random() * 1000)}`;
+      console.log('BillDesk not configured, returning mock response');
+      const mockOrderId = `MOCK_${Date.now()}${Math.floor(Math.random() * 1000)}`;
       const mockBdOrderId = `BD${Date.now()}`;
       
       return res.json({
@@ -294,7 +154,7 @@ exports.createCheckoutSession = (req, res) => {
         message: 'BillDesk not configured - using mock mode. Update .env with actual credentials.',
         bdorderid: mockBdOrderId,
         orderid: mockOrderId,
-        merchantid: BILLDESK_CONFIG.merchantId || 'MOCK_MERCHANT',
+        merchantid: billdesk.mercId || 'MOCK_MERCHANT',
         links: [{
           rel: 'payment',
           href: 'https://uat1.billdesk.com/u2/web/v1_2/embeddedsdk',
@@ -359,75 +219,64 @@ exports.createCheckoutSession = (req, res) => {
         const emailExists = await new Promise((resolve, reject) => {
           db.get(`SELECT email FROM students WHERE email = ?`, [email], (err, row) => {
             if (err) reject(err);
-            resolve(!!row);
+            else resolve(!!row);
           });
         });
-        if (emailExists) return res.status(409).json({ error: 'Email is already registered' });
+        if (emailExists) {
+          return res.status(400).json({ error: 'Email already registered' });
+        }
       }
 
-      // Generate unique order ID
-      const orderId = `ORDER${Date.now()}${Math.floor(Math.random() * 1000)}`;
-      const orderDate = new Date().toISOString();
+      // Generate unique order ID (10-35 chars as per BillDesk requirement)
+      const orderId = `ORD${Date.now()}${Math.floor(Math.random() * 1000)}`;
 
       // Create BillDesk order payload
       const orderPayload = {
-        mercid: BILLDESK_CONFIG.merchantId,
+        objectid: 'order',
+        mercid: billdesk.mercId,
         orderid: orderId,
-        amount: '500.00', // Amount in INR (500 rupees)
-        order_date: orderDate,
-        currency: '356', // INR currency code
-        ru: BILLDESK_CONFIG.returnUrl,
+        amount: '500.00', // Registration fee
+        currency: '356', // INR
+        ru: RU_PUBLIC,
+        itemcode: 'DIRECT',
         additional_info: {
           additional_info1: full_name,
           additional_info2: email || mobile_number,
           additional_info3: mobile_number
-        },
-        itemcode: 'DIRECT',
-        device: {
-          init_channel: 'internet',
-          ip: req.ip || req.connection.remoteAddress || '127.0.0.1',
-          user_agent: req.headers['user-agent'] || 'Mozilla/5.0',
-          accept_header: req.headers['accept'] || 'text/html'
         }
       };
 
       console.log('Creating BillDesk order:', { orderId, amount: '500.00' });
 
-      // Encrypt and sign the payload
-      const encryptedPayload = await encryptPayload(orderPayload);
-      const signedPayload = await signPayload(encryptedPayload);
+      // Sign the payload with JWS
+      const jws = billdesk.jwsCompact(orderPayload);
 
       // Make API call to BillDesk
-      const axios = require('axios');
-      const bdTraceId = `TRACE${Date.now()}`;
-      const bdTimestamp = Math.floor(Date.now() / 1000).toString();
+      const url = `${billdesk.baseUrl}/payments/ve1_2/orders/create`;
+      const response = await axios.post(url, jws, { 
+        headers: billdesk.joseHeaders(),
+        timeout: 30000
+      });
 
-      const response = await axios.post(
-        `${BILLDESK_CONFIG.baseUrl}/payments/ve1_2/orders/create`,
-        signedPayload,
-        {
-          headers: {
-            'Content-Type': 'application/jose',
-            'Accept': 'application/jose',
-            'BD-Traceid': bdTraceId,
-            'BD-Timestamp': bdTimestamp
-          }
-        }
-      );
+      // Verify and decode the response
+      const decoded = billdesk.verifyJws(response.data);
 
-      // Decrypt and verify the response
-      const decryptedResponse = await decryptAndVerifyResponse(response.data);
+      console.log('BillDesk order created successfully:', { orderId, bdorderid: decoded.bdorderid });
 
-      console.log('BillDesk order created successfully:', { orderId, bdorderid: decryptedResponse.bdorderid });
+      // Store order details temporarily for later registration completion
+      // You should store this in a pending_orders table with the form data
+      
+      // Extract rdata from links for the launch URL
+      const paymentLink = decoded.links?.find(link => link.rel === 'payment');
+      const rdata = decoded.links?.find(link => link.parameters?.rdata)?.parameters?.rdata;
 
-      // Store order details temporarily (you can store in session or temp table)
       res.json({
         success: true,
-        bdorderid: decryptedResponse.bdorderid,
+        bdorderid: decoded.bdorderid,
         orderid: orderId,
-        merchantid: BILLDESK_CONFIG.merchantId,
-        links: decryptedResponse.links,
-        // Store form data for later use after payment
+        merchantid: billdesk.mercId,
+        rdata: rdata,
+        links: decoded.links,
         formData: {
           full_name, date_of_birth, gender, guardian_name, nationality, religion, email, mobile_number,
           place_of_birth, community, mother_tongue, aadhar_number, degree_name, university_name,
@@ -445,102 +294,164 @@ exports.createCheckoutSession = (req, res) => {
       });
     } catch (error) {
       console.error('BillDesk order creation error:', error.message, error.stack);
+      if (error.response) {
+        console.error('BillDesk API error response:', error.response.data);
+      }
       res.status(500).json({ error: `Failed to create checkout session: ${error.message}` });
     }
   });
 };
 
-// BillDesk - Verify Payment
-exports.verifyPayment = async (req, res) => {
-  const { orderid, transaction_response } = req.body;
-
-  if (!orderid) {
-    return res.status(400).json({ error: 'Order ID is required' });
+// BillDesk - Launch Payment (HTML form auto-submit)
+exports.launchPayment = (req, res) => {
+  const { bdorderid, rdata } = req.query || {};
+  
+  if (!bdorderid || !rdata) {
+    return res.status(400).send('Missing bdorderid or rdata');
   }
 
-  // Check if BillDesk is properly configured
-  const isConfigured = BILLDESK_CONFIG.merchantId && 
-                       BILLDESK_CONFIG.clientId && 
-                       BILLDESK_CONFIG.encryptionKey && 
-                       BILLDESK_CONFIG.signingKey &&
-                       !BILLDESK_CONFIG.encryptionKey.includes('your_') &&
-                       !BILLDESK_CONFIG.signingKey.includes('your_');
+  const html = `
+  <!doctype html>
+  <html>
+    <head>
+      <title>Redirecting to Payment Gateway...</title>
+    </head>
+    <body onload="document.forms[0].submit()">
+      <h3>Redirecting to payment gateway...</h3>
+      <form action="${billdesk.baseUrl}/web/v1_2/embeddedsdk" method="POST">
+        <input type="hidden" name="bdorderid" value="${bdorderid}" />
+        <input type="hidden" name="merchantid" value="${billdesk.mercId}" />
+        <input type="hidden" name="rdata" value="${String(rdata).replace(/"/g, "&quot;")}" />
+        <noscript><button type="submit">Continue to payment</button></noscript>
+      </form>
+    </body>
+  </html>`;
+  
+  res.setHeader("Content-Type", "text/html; charset=utf-8");
+  return res.send(html);
+};
 
-  if (!isConfigured) {
-    console.log('BillDesk not configured - using mock mode for verification');
-    
-    // Return mock verification response
-    return res.json({
-      success: true,
-      mock: true,
-      message: 'BillDesk not configured - using mock mode',
-      status: 'success',
-      orderid: orderid,
-      transactionid: `TXN${Date.now()}`,
-      amount: '500.00',
-      transaction_date: new Date().toISOString(),
-      auth_status: '0300',
-      payment_method_type: 'netbanking'
-    });
-  }
-
+// BillDesk - Webhook Handler (S2S callback - source of truth)
+exports.handleWebhook = async (req, res) => {
   try {
-    console.log('Verifying BillDesk payment:', { orderid });
+    let decoded = null;
 
-    // If transaction_response is provided (from callback), decrypt it
-    let transactionData;
-    if (transaction_response) {
-      transactionData = await decryptAndVerifyResponse(transaction_response);
+    // Handle different content types BillDesk might send
+    if (req.is("application/jose") || typeof req.body === 'string') {
+      decoded = billdesk.verifyJws(req.body);
+    } else if (req.is("application/x-www-form-urlencoded")) {
+      const trxBlob = req.body?.transaction_response;
+      // If your BillDesk setup uses encrypted response, implement decryption here
+      // For now, treating as JWS
+      if (trxBlob) {
+        decoded = billdesk.verifyJws(trxBlob);
+      } else {
+        decoded = req.body;
+      }
     } else {
-      // Otherwise, fetch transaction status from BillDesk
-      const axios = require('axios');
-      
-      const retrievePayload = {
-        mercid: BILLDESK_CONFIG.merchantId,
-        orderid: orderid
-      };
-
-      const encryptedPayload = await encryptPayload(retrievePayload);
-      const signedPayload = await signPayload(encryptedPayload);
-
-      const bdTraceId = `TRACE${Date.now()}`;
-      const bdTimestamp = Math.floor(Date.now() / 1000).toString();
-
-      const response = await axios.post(
-        `${BILLDESK_CONFIG.baseUrl}/payments/ve1_2/transactions/get`,
-        signedPayload,
-        {
-          headers: {
-            'Content-Type': 'application/jose',
-            'Accept': 'application/jose',
-            'BD-Traceid': bdTraceId,
-            'BD-Timestamp': bdTimestamp
-          }
-        }
-      );
-
-      transactionData = await decryptAndVerifyResponse(response.data);
+      decoded = req.body;
     }
 
-    console.log('BillDesk transaction data:', transactionData);
+    console.log('Webhook received:', decoded);
 
-    // Check transaction status
-    const isSuccess = transactionData.transaction_error_type === 'success' || 
-                      transactionData.status === 'success';
+    // Process payment based on auth_status
+    // auth_status: "0300" = Success, "0399" = Failure, "0002" = Pending
+    const isSuccess = decoded.auth_status === '0300' || 
+                      decoded.transaction_error_type === 'success';
 
-    res.json({
-      success: isSuccess,
-      status: transactionData.status || transactionData.transaction_error_type,
-      orderid: transactionData.orderid,
-      transactionid: transactionData.transactionid,
-      amount: transactionData.amount,
-      transaction_date: transactionData.transaction_date,
-      auth_status: transactionData.auth_status,
-      payment_method_type: transactionData.payment_method_type
-    });
+    // TODO: Update your database with payment status
+    // Use decoded.orderid to find the pending registration
+    // If isSuccess, complete the registration
+    // Store transaction details for record keeping
+
+    // Always return 200 to acknowledge receipt
+    return res.json({ ack: true });
   } catch (error) {
-    console.error('BillDesk payment verification error:', error.message, error.stack);
-    res.status(500).json({ error: `Failed to verify payment: ${error.message}` });
+    console.error('Webhook processing error:', error.message, error.stack);
+    // Still return 200 so BillDesk doesn't retry indefinitely
+    return res.status(200).json({ ack: true, error: error.message });
+  }
+};
+
+// BillDesk - Return URL Handler (browser callback)
+exports.handleReturn = async (req, res) => {
+  // Many teams simply show "Processing…" and rely on webhook for actual status
+  // The frontend should poll the backend for payment status
+  const html = `
+  <!doctype html>
+  <html>
+    <head>
+      <title>Payment Processing</title>
+      <meta charset="utf-8">
+    </head>
+    <body>
+      <h3>Thank you! Processing your payment...</h3>
+      <p>Please wait while we confirm your payment. You will be redirected shortly.</p>
+      <script>
+        // Optionally redirect to frontend after a few seconds
+        setTimeout(() => {
+          window.location.href = '/'; // Update with your frontend URL
+        }, 3000);
+      </script>
+    </body>
+  </html>`;
+  
+  res.type("html").send(html);
+};
+
+// BillDesk - Retrieve Transaction Status
+exports.retrieveTransaction = async (req, res) => {
+  try {
+    const { orderid } = req.body || {};
+    
+    if (!orderid) {
+      return res.status(400).json({ error: 'orderid required' });
+    }
+
+    // Check if BillDesk is configured
+    const isConfigured = billdesk.mercId && 
+                         billdesk.clientId && 
+                         process.env.BILLDESK_SECRET &&
+                         !billdesk.mercId.includes('your_') &&
+                         !process.env.BILLDESK_SECRET.includes('your_');
+
+    if (!isConfigured) {
+      return res.json({
+        mock: true,
+        message: 'BillDesk not configured - using mock mode',
+        orderid: orderid,
+        status: 'success',
+        auth_status: '0300',
+        transactionid: `TXN${Date.now()}`,
+        amount: '500.00'
+      });
+    }
+
+    const payload = { 
+      mercid: billdesk.mercId, 
+      orderid: orderid,
+      refund_details: true 
+    };
+    
+    const jws = billdesk.jwsCompact(payload);
+    const url = `${billdesk.baseUrl}/payments/ve1_2/transactions/get`;
+
+    const response = await axios.post(url, jws, { 
+      headers: billdesk.joseHeaders(),
+      timeout: 30000
+    });
+    
+    const decoded = billdesk.verifyJws(response.data);
+    
+    console.log('Retrieved transaction:', decoded);
+    
+    return res.json(decoded);
+  } catch (error) {
+    console.error('Retrieve transaction error:', error.message, error.stack);
+    if (error.response) {
+      console.error('BillDesk API error response:', error.response.data);
+    }
+    return res.status(400).json({ error: error.message });
   }
 };
 
