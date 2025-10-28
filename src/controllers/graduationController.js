@@ -116,7 +116,7 @@ exports.checkBillDeskConfig = (req, res) => {
     returnUrl: RU_PUBLIC || 'Not set'
   };
 
-  const isFullyConfigured = !Object.values(config).some(v => v.includes('✗'));
+  const isFullyConfigured = billdesk.isConfigured;
 
   res.json({
     configured: isFullyConfigured,
@@ -124,6 +124,13 @@ exports.checkBillDeskConfig = (req, res) => {
       'BillDesk is fully configured and ready to use' : 
       'BillDesk is not fully configured. Please update .env with actual credentials from BillDesk.',
     config,
+    instructions: isFullyConfigured ? null : {
+      step1: 'Open .env file in the root directory',
+      step2: 'Replace placeholder values (your_*_here) with actual BillDesk credentials',
+      step3: 'Get credentials from your BillDesk relationship manager',
+      step4: 'Restart the server after updating .env file',
+      step5: 'Test this endpoint again to verify configuration'
+    },
     note: 'Get your BillDesk credentials from your BillDesk relationship manager'
   });
 };
@@ -136,14 +143,8 @@ exports.createCheckoutSession = (req, res) => {
       return res.status(400).json({ error: err.message });
     }
 
-    // Check if BillDesk is configured
-    const isConfigured = billdesk.mercId && 
-                         billdesk.clientId && 
-                         process.env.BILLDESK_SECRET &&
-                         !billdesk.mercId.includes('your_') &&
-                         !process.env.BILLDESK_SECRET.includes('your_');
-
-    if (!isConfigured) {
+    // Check if BillDesk is configured using the isConfigured flag
+    if (!billdesk.isConfigured) {
       console.log('BillDesk not configured, returning mock response');
       const mockOrderId = `MOCK_${Date.now()}${Math.floor(Math.random() * 1000)}`;
       const mockBdOrderId = `BD${Date.now()}`;
@@ -158,13 +159,22 @@ exports.createCheckoutSession = (req, res) => {
         links: [{
           rel: 'payment',
           href: 'https://uat1.billdesk.com/u2/web/v1_2/embeddedsdk',
-          method: 'POST'
+          method: 'POST',
+          parameters: {
+            rdata: 'mock_rdata_value'
+          }
         }],
         formData: {
           full_name: req.body.full_name,
           date_of_birth: req.body.date_of_birth,
           email: req.body.email,
           mobile_number: req.body.mobile_number
+        },
+        instructions: {
+          message: 'This is a MOCK response. To enable real payments:',
+          step1: 'Update .env file with actual BillDesk credentials',
+          step2: 'Restart the server',
+          step3: 'Try creating checkout session again'
         }
       });
     }
@@ -178,41 +188,28 @@ exports.createCheckoutSession = (req, res) => {
 
       const is_registered_graduate = toBool(req.body.is_registered_graduate);
 
-      // Comprehensive validation
-      if (!full_name) return res.status(400).json({ error: 'Full name is required' });
-      if (!date_of_birth || !isDate(date_of_birth)) return res.status(400).json({ error: 'Valid date of birth (YYYY-MM-DD) is required' });
-      if (!gender || !GENDER_ENUM.includes(gender)) return res.status(400).json({ error: `Gender must be one of ${GENDER_ENUM.join(', ')}` });
-      if (!guardian_name) return res.status(400).json({ error: 'Guardian name is required' });
-      if (!nationality) return res.status(400).json({ error: 'Nationality is required' });
-      if (!religion) return res.status(400).json({ error: 'Religion is required' });
+      // Debug logging
+      console.log('createCheckoutSession - Request body:', req.body);
+      console.log('createCheckoutSession - Files:', req.files ? Object.keys(req.files) : 'No files');
+
+      // Optional format validations (only if value is provided)
+      if (date_of_birth && !isDate(date_of_birth)) return res.status(400).json({ error: 'Valid date of birth (YYYY-MM-DD) is required' });
+      if (gender && !GENDER_ENUM.includes(gender)) return res.status(400).json({ error: `Gender must be one of ${GENDER_ENUM.join(', ')}` });
       if (email && !isEmail(email)) return res.status(400).json({ error: 'Valid email is required' });
-      if (!mobile_number || !isPhone(mobile_number)) return res.status(400).json({ error: 'Mobile number must be exactly 10 digits' });
-      if (!place_of_birth || !DISTRICT_ENUM.includes(place_of_birth)) return res.status(400).json({ error: `Place of birth must be one of ${DISTRICT_ENUM.join(', ')}` });
-      if (!community || !COMMUNITY_ENUM.includes(community)) return res.status(400).json({ error: `Community must be one of ${COMMUNITY_ENUM.join(', ')}` });
-      if (!mother_tongue) return res.status(400).json({ error: 'Mother tongue is required' });
-      if (!req.files?.applicant_photo) return res.status(400).json({ error: 'Applicant photo is required' });
-      if (req.files.applicant_photo[0].size > 2 * 1024 * 1024) return res.status(400).json({ error: 'Applicant photo must be less than 2MB' });
-      if (!aadhar_number || !isAadhar(aadhar_number)) return res.status(400).json({ error: 'Aadhar number must be exactly 12 digits' });
-      if (!req.files?.aadhar_copy) return res.status(400).json({ error: 'Aadhar copy is required' });
-      if (req.files.aadhar_copy[0].size > 2 * 1024 * 1024) return res.status(400).json({ error: 'Aadhar copy must be less than 2MB' });
-      if (!req.files?.residence_certificate) return res.status(400).json({ error: 'Residence certificate is required' });
-      if (req.files.residence_certificate[0].size > 5 * 1024 * 1024) return res.status(400).json({ error: 'Residence certificate must be less than 5MB' });
-      if (!degree_name) return res.status(400).json({ error: 'Degree name is required' });
-      if (!university_name) return res.status(400).json({ error: 'University name is required' });
-      if (!degree_pattern) return res.status(400).json({ error: 'Degree pattern is required' });
-      if (!convocation_year) return res.status(400).json({ error: 'Convocation year is required' });
-      if (!req.files?.degree_certificate) return res.status(400).json({ error: 'Degree certificate is required' });
-      if (req.files.degree_certificate[0].size > 5 * 1024 * 1024) return res.status(400).json({ error: 'Degree certificate must be less than 5MB' });
-      if (is_registered_graduate === null) return res.status(400).json({ error: 'is_registered_graduate must be Yes/No or boolean' });
-      if (is_registered_graduate && !req.files?.other_university_certificate) return res.status(400).json({ error: 'Other university certificate is required when registered with another university' });
+      if (mobile_number && !isPhone(mobile_number)) return res.status(400).json({ error: 'Mobile number must be exactly 10 digits' });
+      if (place_of_birth && !DISTRICT_ENUM.includes(place_of_birth)) return res.status(400).json({ error: `Place of birth must be one of ${DISTRICT_ENUM.join(', ')}` });
+      if (community && !COMMUNITY_ENUM.includes(community)) return res.status(400).json({ error: `Community must be one of ${COMMUNITY_ENUM.join(', ')}` });
+      if (aadhar_number && !isAadhar(aadhar_number)) return res.status(400).json({ error: 'Aadhar number must be exactly 12 digits' });
+      if (lunch_required && !LUNCH_ENUM.includes(lunch_required)) return res.status(400).json({ error: `Lunch required must be one of ${LUNCH_ENUM.join(', ')}` });
+      if (companion_option && !COMPANION_ENUM.includes(companion_option)) return res.status(400).json({ error: `Companion option must be one of: ${COMPANION_ENUM.join(' | ')}` });
+
+      // File size validations (only if file is uploaded)
+      if (req.files?.applicant_photo && req.files.applicant_photo[0].size > 2 * 1024 * 1024) return res.status(400).json({ error: 'Applicant photo must be less than 2MB' });
+      if (req.files?.aadhar_copy && req.files.aadhar_copy[0].size > 2 * 1024 * 1024) return res.status(400).json({ error: 'Aadhar copy must be less than 2MB' });
+      if (req.files?.residence_certificate && req.files.residence_certificate[0].size > 5 * 1024 * 1024) return res.status(400).json({ error: 'Residence certificate must be less than 5MB' });
+      if (req.files?.degree_certificate && req.files.degree_certificate[0].size > 5 * 1024 * 1024) return res.status(400).json({ error: 'Degree certificate must be less than 5MB' });
       if (req.files?.other_university_certificate && req.files.other_university_certificate[0].size > 5 * 1024 * 1024) return res.status(400).json({ error: 'Other university certificate must be less than 5MB' });
-      if (!occupation) return res.status(400).json({ error: 'Occupation is required' });
-      if (!address) return res.status(400).json({ error: 'Address is required' });
-      if (!req.files?.signature) return res.status(400).json({ error: 'Signature is required' });
-      if (req.files.signature[0].size > 5 * 1024 * 1024) return res.status(400).json({ error: 'Signature must be less than 5MB' });
-      if (!toBool(declaration)) return res.status(400).json({ error: 'Declaration must be true' });
-      if (!lunch_required || !LUNCH_ENUM.includes(lunch_required)) return res.status(400).json({ error: `Lunch required must be one of ${LUNCH_ENUM.join(', ')}` });
-      if (!companion_option || !COMPANION_ENUM.includes(companion_option)) return res.status(400).json({ error: `Companion option must be one of: ${COMPANION_ENUM.join(' | ')}` });
+      if (req.files?.signature && req.files.signature[0].size > 5 * 1024 * 1024) return res.status(400).json({ error: 'Signature must be less than 5MB' });
 
       // Check email uniqueness if provided
       if (email) {
@@ -247,12 +244,16 @@ exports.createCheckoutSession = (req, res) => {
       };
 
       console.log('Creating BillDesk order:', { orderId, amount: '500.00' });
+      console.log('BillDesk order payload:', JSON.stringify(orderPayload, null, 2));
 
       // Sign the payload with JWS
       const jws = billdesk.jwsCompact(orderPayload);
+      console.log('JWT signed, length:', jws.length);
 
       // Make API call to BillDesk
       const url = `${billdesk.baseUrl}/payments/ve1_2/orders/create`;
+      console.log('Making request to:', url);
+      
       const response = await axios.post(url, jws, { 
         headers: billdesk.joseHeaders(),
         timeout: 30000
@@ -293,11 +294,19 @@ exports.createCheckoutSession = (req, res) => {
         }
       });
     } catch (error) {
-      console.error('BillDesk order creation error:', error.message, error.stack);
+      console.error('BillDesk order creation error:', error.message);
       if (error.response) {
-        console.error('BillDesk API error response:', error.response.data);
+        console.error('BillDesk API error status:', error.response.status);
+        console.error('BillDesk API error headers:', error.response.headers);
+        console.error('BillDesk API error data:', error.response.data);
       }
-      res.status(500).json({ error: `Failed to create checkout session: ${error.message}` });
+      res.status(500).json({ 
+        error: `Failed to create checkout session: ${error.message}`,
+        details: error.response ? {
+          status: error.response.status,
+          data: error.response.data
+        } : null
+      });
     }
   });
 };
@@ -408,14 +417,8 @@ exports.retrieveTransaction = async (req, res) => {
       return res.status(400).json({ error: 'orderid required' });
     }
 
-    // Check if BillDesk is configured
-    const isConfigured = billdesk.mercId && 
-                         billdesk.clientId && 
-                         process.env.BILLDESK_SECRET &&
-                         !billdesk.mercId.includes('your_') &&
-                         !process.env.BILLDESK_SECRET.includes('your_');
-
-    if (!isConfigured) {
+    // Check if BillDesk is configured using the isConfigured flag
+    if (!billdesk.isConfigured) {
       return res.json({
         mock: true,
         message: 'BillDesk not configured - using mock mode',
