@@ -6,16 +6,13 @@ const archiver = require('archiver');
 const axios = require('axios');
 const { billdesk } = require('../../server/billdesk');
 
-// Get return URL from environment
 const RU_PUBLIC = process.env.RU_PUBLIC || 'http://localhost:3000/payment/result';
 
-// Multer configuration for file uploads
+// ---------- Multer (only for multipart) ----------
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     const uploadPath = path.join(__dirname, '..', 'Uploads');
-    if (!fs.existsSync(uploadPath)) {
-      fs.mkdirSync(uploadPath, { recursive: true });
-    }
+    if (!fs.existsSync(uploadPath)) fs.mkdirSync(uploadPath, { recursive: true });
     cb(null, uploadPath);
   },
   filename: (req, file, cb) => {
@@ -27,7 +24,6 @@ const storage = multer.diskStorage({
 const fileFilter = (req, file, cb) => {
   const allowedTypes = ['image/jpeg', 'image/png', 'application/pdf'];
   if (!allowedTypes.includes(file.mimetype)) {
-    console.error('Invalid file type:', file.mimetype, 'for file:', file.originalname);
     return cb(new Error('Only JPEG, PNG, and PDF files are allowed'), false);
   }
   cb(null, true);
@@ -36,12 +32,9 @@ const fileFilter = (req, file, cb) => {
 const upload = multer({
   storage,
   fileFilter,
-  limits: {
-    fileSize: 5 * 1024 * 1024 // 5MB limit for most files
-  }
+  limits: { fileSize: 5 * 1024 * 1024 }
 });
 
-// File upload fields for registration
 const uploadFields = upload.fields([
   { name: 'applicant_photo', maxCount: 1 },
   { name: 'aadhar_copy', maxCount: 1 },
@@ -51,20 +44,21 @@ const uploadFields = upload.fields([
   { name: 'signature', maxCount: 1 }
 ]);
 
-// Single file upload for the upload route
 const singleUpload = upload.single('file');
 
-// Enums
+// Allow JSON or multipart seamlessly
+function maybeUpload(req, res, next) {
+  if (req.is('multipart/form-data')) return uploadFields(req, res, next);
+  next();
+}
+
+// ---------- Helpers ----------
 const GENDER_ENUM = ['Male', 'Female', 'Other'];
 const LUNCH_ENUM = ['VEG', 'NON-VEG'];
 const COMMUNITY_ENUM = ['OC', 'BC', 'SC', 'ST', 'MBC'];
 const DISTRICT_ENUM = ['Dharmapuri', 'Krishnagiri', 'Namakkal', 'Salem'];
 const COMPANION_ENUM = [
-  '1 Veg',
-  '1 Non veg',
-  '2 Veg',
-  '2 Non Veg',
-  '1 Veg and 1 Non veg'
+  '1 Veg', '1 Non veg', '2 Veg', '2 Non Veg', '1 Veg and 1 Non veg'
 ];
 
 const isEmail = (s) => !!s && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s);
@@ -86,69 +80,52 @@ const toBool = (v) => {
   return null;
 };
 
+// ---------- Public APIs ----------
 exports.checkEmail = (req, res) => {
   const { email } = req.query;
   if (!email || !isEmail(email)) {
     return res.status(400).json({ error: 'Valid email is required' });
   }
   db.get(`SELECT email FROM students WHERE email = ?`, [email], (err, row) => {
-    if (err) {
-      console.error('DB fetch error for email check:', err.message, err.stack);
-      return res.status(500).json({ error: 'Failed to check email' });
-    }
+    if (err) return res.status(500).json({ error: 'Failed to check email' });
     return res.status(200).json({ exists: !!row });
   });
 };
 
 // BillDesk - Configuration Check
+
 exports.checkBillDeskConfig = (req, res) => {
   const config = {
     mercId: billdesk.mercId ? 
-      (billdesk.mercId.includes('your_') ? '✗ Placeholder value' : '✓ Set') : 
-      '✗ Not set',
+      (String(billdesk.mercId).includes('your_') ? '✗ Placeholder value' : '✓ Set') : '✗ Not set',
     clientId: billdesk.clientId ? 
-      (billdesk.clientId.includes('your_') ? '✗ Placeholder value' : '✓ Set') : 
-      '✗ Not set',
+      (String(billdesk.clientId).includes('your_') ? '✗ Placeholder value' : '✓ Set') : '✗ Not set',
     secret: process.env.BILLDESK_SECRET ? 
-      (process.env.BILLDESK_SECRET.includes('your_') ? '✗ Placeholder value' : '✓ Set') : 
-      '✗ Not set',
+      (String(process.env.BILLDESK_SECRET).includes('your_') ? '✗ Placeholder value' : '✓ Set') : '✗ Not set',
     baseUrl: billdesk.baseUrl || 'Not set',
     returnUrl: RU_PUBLIC || 'Not set'
   };
-
   const isFullyConfigured = billdesk.isConfigured;
-
   res.json({
     configured: isFullyConfigured,
-    message: isFullyConfigured ? 
-      'BillDesk is fully configured and ready to use' : 
+    message: isFullyConfigured ?
+      'BillDesk is fully configured and ready to use' :
       'BillDesk is not fully configured. Please update .env with actual credentials from BillDesk.',
-    config,
-    instructions: isFullyConfigured ? null : {
-      step1: 'Open .env file in the root directory',
-      step2: 'Replace placeholder values (your_*_here) with actual BillDesk credentials',
-      step3: 'Get credentials from your BillDesk relationship manager',
-      step4: 'Restart the server after updating .env file',
-      step5: 'Test this endpoint again to verify configuration'
-    },
-    note: 'Get your BillDesk credentials from your BillDesk relationship manager'
+    config
   });
 };
 
-// BillDesk - Create Checkout Session (Order)
+// --------- Create Checkout Session (JSON or multipart) ----------
 exports.createCheckoutSession = (req, res) => {
-  uploadFields(req, res, async (err) => {
-    if (err) {
-      console.error('Multer error:', err.message);
-      return res.status(400).json({ error: err.message });
-    }
+  maybeUpload(req, res, async (err) => {
+    if (err) return res.status(400).json({ error: err.message });
 
-    // Check if BillDesk is configured using the isConfigured flag
+    // If not configured, return MOCK response with rdata
     if (!billdesk.isConfigured) {
-      console.log('BillDesk not configured, returning mock response');
       const mockOrderId = `MOCK_${Date.now()}${Math.floor(Math.random() * 1000)}`;
       const mockBdOrderId = `BD${Date.now()}`;
-      
+      const mockRdata = 'mock_rdata_value';
+
       return res.json({
         success: true,
         mock: true,
@@ -156,43 +133,29 @@ exports.createCheckoutSession = (req, res) => {
         bdorderid: mockBdOrderId,
         orderid: mockOrderId,
         merchantid: billdesk.mercId || 'MOCK_MERCHANT',
+        rdata: mockRdata,
         links: [{
           rel: 'payment',
-          href: 'https://uat1.billdesk.com/u2/web/v1_2/embeddedsdk',
+          href: `${billdesk.baseUrl || 'https://uat1.billdesk.com/u2'}/web/v1_2/embeddedsdk`,
           method: 'POST',
-          parameters: {
-            rdata: 'mock_rdata_value'
-          }
-        }],
-        formData: {
-          full_name: req.body.full_name,
-          date_of_birth: req.body.date_of_birth,
-          email: req.body.email,
-          mobile_number: req.body.mobile_number
-        },
-        instructions: {
-          message: 'This is a MOCK response. To enable real payments:',
-          step1: 'Update .env file with actual BillDesk credentials',
-          step2: 'Restart the server',
-          step3: 'Try creating checkout session again'
-        }
+          parameters: { rdata: mockRdata }
+        }]
       });
     }
 
     try {
+      // Basic fields (optional validations – only if present)
       const {
         full_name, date_of_birth, gender, guardian_name, nationality, religion, email, mobile_number,
         place_of_birth, community, mother_tongue, aadhar_number, degree_name, university_name,
-        degree_pattern, convocation_year, occupation, address, declaration, lunch_required, companion_option
-      } = req.body;
+        degree_pattern, convocation_year, occupation, address, declaration, lunch_required, companion_option,
+        additional_info = {},
+        orderid: incomingOrderId
+      } = req.body || {};
 
-      const is_registered_graduate = toBool(req.body.is_registered_graduate);
+      const is_registered_graduate = toBool(req.body?.is_registered_graduate);
 
-      // Debug logging
-      console.log('createCheckoutSession - Request body:', req.body);
-      console.log('createCheckoutSession - Files:', req.files ? Object.keys(req.files) : 'No files');
-
-      // Optional format validations (only if value is provided)
+      // Optional field format checks
       if (date_of_birth && !isDate(date_of_birth)) return res.status(400).json({ error: 'Valid date of birth (YYYY-MM-DD) is required' });
       if (gender && !GENDER_ENUM.includes(gender)) return res.status(400).json({ error: `Gender must be one of ${GENDER_ENUM.join(', ')}` });
       if (email && !isEmail(email)) return res.status(400).json({ error: 'Valid email is required' });
@@ -203,108 +166,130 @@ exports.createCheckoutSession = (req, res) => {
       if (lunch_required && !LUNCH_ENUM.includes(lunch_required)) return res.status(400).json({ error: `Lunch required must be one of ${LUNCH_ENUM.join(', ')}` });
       if (companion_option && !COMPANION_ENUM.includes(companion_option)) return res.status(400).json({ error: `Companion option must be one of: ${COMPANION_ENUM.join(' | ')}` });
 
-      // File size validations (only if file is uploaded)
-      if (req.files?.applicant_photo && req.files.applicant_photo[0].size > 2 * 1024 * 1024) return res.status(400).json({ error: 'Applicant photo must be less than 2MB' });
-      if (req.files?.aadhar_copy && req.files.aadhar_copy[0].size > 2 * 1024 * 1024) return res.status(400).json({ error: 'Aadhar copy must be less than 2MB' });
-      if (req.files?.residence_certificate && req.files.residence_certificate[0].size > 5 * 1024 * 1024) return res.status(400).json({ error: 'Residence certificate must be less than 5MB' });
-      if (req.files?.degree_certificate && req.files.degree_certificate[0].size > 5 * 1024 * 1024) return res.status(400).json({ error: 'Degree certificate must be less than 5MB' });
-      if (req.files?.other_university_certificate && req.files.other_university_certificate[0].size > 5 * 1024 * 1024) return res.status(400).json({ error: 'Other university certificate must be less than 5MB' });
-      if (req.files?.signature && req.files.signature[0].size > 5 * 1024 * 1024) return res.status(400).json({ error: 'Signature must be less than 5MB' });
+      // Amount / currency / ru acceptance with defaults
+      const {
+        amount = '500.00',
+        currency = '356',
+        itemcode = 'DIRECT',
+        ru = RU_PUBLIC
+      } = req.body || {};
 
-      // Check email uniqueness if provided
-      if (email) {
-        const emailExists = await new Promise((resolve, reject) => {
-          db.get(`SELECT email FROM students WHERE email = ?`, [email], (err, row) => {
-            if (err) reject(err);
-            else resolve(!!row);
-          });
-        });
-        if (emailExists) {
-          return res.status(400).json({ error: 'Email already registered' });
-        }
-      }
+      // Generate a unique order id if none provided
+      const orderId = incomingOrderId || `ORD${Date.now()}${Math.floor(Math.random() * 1000)}`;
 
-      // Generate unique order ID (10-35 chars as per BillDesk requirement)
-      const orderId = `ORD${Date.now()}${Math.floor(Math.random() * 1000)}`;
-
-      // Create BillDesk order payload
       const orderPayload = {
         objectid: 'order',
         mercid: billdesk.mercId,
         orderid: orderId,
-        amount: '500.00', // Registration fee
-        currency: '356', // INR
-        ru: RU_PUBLIC,
-        itemcode: 'DIRECT',
+        amount,
+        currency,   // '356' (INR) as numeric for BD V2
+        ru,
+        itemcode,
         additional_info: {
-          additional_info1: full_name,
-          additional_info2: email || mobile_number,
-          additional_info3: mobile_number
+          additional_info1: additional_info.purpose || full_name || '',
+          additional_info2: email || mobile_number || '',
+          additional_info3: mobile_number || ''
         }
       };
 
-      console.log('Creating BillDesk order:', { orderId, amount: '500.00' });
-      console.log('BillDesk order payload:', JSON.stringify(orderPayload, null, 2));
+      console.log('=== BillDesk Order Creation ===');
+      console.log('1. Order Payload (before encryption):', JSON.stringify(orderPayload, null, 2));
 
-      // Sign the payload with JWS
-      const jws = billdesk.jwsCompact(orderPayload);
-      console.log('JWT signed, length:', jws.length);
+      // NEW: Encrypt then Sign (correct BillDesk flow)
+      const finalToken = await billdesk.createOrderToken(orderPayload);
+      console.log('2. Final Token (encrypted + signed):', finalToken.substring(0, 150) + '...');
 
-      // Make API call to BillDesk
+      const headers = billdesk.joseHeaders();
+      console.log('3. Request Headers:', JSON.stringify(headers, null, 2));
+
       const url = `${billdesk.baseUrl}/payments/ve1_2/orders/create`;
-      console.log('Making request to:', url);
-      
-      const response = await axios.post(url, jws, { 
-        headers: billdesk.joseHeaders(),
+      console.log('4. Request URL:', url);
+      console.log('5. Full Request Details:', {
+        url,
+        method: 'POST',
+        headers,
+        bodyLength: finalToken.length
+      });
+
+      const response = await axios.post(url, finalToken, {
+        headers,
         timeout: 30000
       });
 
-      // Verify and decode the response
-      const decoded = billdesk.verifyJws(response.data);
+      console.log('6. BillDesk Response Status:', response.status);
+      console.log('7. BillDesk Response Data (encrypted + signed):', 
+                  typeof response.data === 'string' ? response.data.substring(0, 100) + '...' : response.data);
 
-      console.log('BillDesk order created successfully:', { orderId, bdorderid: decoded.bdorderid });
+      // NEW: Use processResponse to verify signature and decrypt
+      const decoded = await billdesk.processResponse(response.data);
 
-      // Store order details temporarily for later registration completion
-      // You should store this in a pending_orders table with the form data
-      
-      // Extract rdata from links for the launch URL
-      const paymentLink = decoded.links?.find(link => link.rel === 'payment');
-      const rdata = decoded.links?.find(link => link.parameters?.rdata)?.parameters?.rdata;
+      console.log('8. BillDesk Response Data (decrypted):', JSON.stringify(decoded, null, 2));
 
-      res.json({
+      // Extract rdata from links[]
+      const paymentLink = decoded?.links?.find(l => l?.rel === 'payment');
+      const rdata = paymentLink?.parameters?.rdata || null;
+
+      console.log('9. Extracted rdata for payment:', rdata);
+      console.log('=== BillDesk Order Creation Complete ===\n');
+
+      return res.json({
         success: true,
         bdorderid: decoded.bdorderid,
         orderid: orderId,
         merchantid: billdesk.mercId,
-        rdata: rdata,
-        links: decoded.links,
-        formData: {
-          full_name, date_of_birth, gender, guardian_name, nationality, religion, email, mobile_number,
-          place_of_birth, community, mother_tongue, aadhar_number, degree_name, university_name,
-          degree_pattern, convocation_year, occupation, address, declaration, lunch_required, companion_option,
-          is_registered_graduate,
-          files: {
-            applicant_photo: req.files?.applicant_photo?.[0]?.path,
-            aadhar_copy: req.files?.aadhar_copy?.[0]?.path,
-            residence_certificate: req.files?.residence_certificate?.[0]?.path,
-            degree_certificate: req.files?.degree_certificate?.[0]?.path,
-            other_university_certificate: req.files?.other_university_certificate?.[0]?.path,
-            signature: req.files?.signature?.[0]?.path
-          }
-        }
+        rdata,
+        links: decoded.links
       });
     } catch (error) {
       console.error('BillDesk order creation error:', error.message);
-      if (error.response) {
+      
+      // If there's a response from BillDesk API, try to decrypt it
+      if (error.response && error.response.data) {
         console.error('BillDesk API error status:', error.response.status);
-        console.error('BillDesk API error headers:', error.response.headers);
-        console.error('BillDesk API error data:', error.response.data);
+        console.error('BillDesk API error data (encrypted):', 
+                      typeof error.response.data === 'string' ? error.response.data.substring(0, 100) + '...' : error.response.data);
+        
+        try {
+          // Try to decrypt the error response
+          console.log('\n=== Attempting to decrypt BillDesk error response ===');
+          const decryptedError = await billdesk.processResponse(error.response.data);
+          console.log('Decrypted error response:', JSON.stringify(decryptedError, null, 2));
+          console.log('=== End error decryption ===\n');
+          
+          // Send decrypted error to frontend
+          return res.status(error.response.status || 400).json({
+            success: false,
+            error: 'BillDesk API error',
+            message: decryptedError.error_message || decryptedError.message || 'Payment processing failed',
+            billdesk_error: decryptedError,
+            details: {
+              status: error.response.status,
+              error_code: decryptedError.error_code,
+              error_desc: decryptedError.error_desc
+            }
+          });
+        } catch (decryptError) {
+          // If decryption fails, send the raw error
+          console.error('Failed to decrypt error response:', decryptError.message);
+          return res.status(error.response.status || 500).json({
+            success: false,
+            error: 'BillDesk API error (unable to decrypt)',
+            message: error.message,
+            details: {
+              status: error.response.status,
+              encrypted_data: typeof error.response.data === 'string' ? 
+                error.response.data.substring(0, 100) + '...' : error.response.data
+            }
+          });
+        }
       }
-      res.status(500).json({ 
+      
+      // Generic error (no response from BillDesk)
+      return res.status(500).json({
+        success: false,
         error: `Failed to create checkout session: ${error.message}`,
         details: error.response ? {
-          status: error.response.status,
-          data: error.response.data
+          status: error.response.status
         } : null
       });
     }
@@ -314,17 +299,12 @@ exports.createCheckoutSession = (req, res) => {
 // BillDesk - Launch Payment (HTML form auto-submit)
 exports.launchPayment = (req, res) => {
   const { bdorderid, rdata } = req.query || {};
-  
-  if (!bdorderid || !rdata) {
-    return res.status(400).send('Missing bdorderid or rdata');
-  }
+  if (!bdorderid || !rdata) return res.status(400).send('Missing bdorderid or rdata');
 
   const html = `
   <!doctype html>
   <html>
-    <head>
-      <title>Redirecting to Payment Gateway...</title>
-    </head>
+    <head><meta charset="utf-8"><title>Redirecting to Payment Gateway...</title></head>
     <body onload="document.forms[0].submit()">
       <h3>Redirecting to payment gateway...</h3>
       <form action="${billdesk.baseUrl}/web/v1_2/embeddedsdk" method="POST">
@@ -335,7 +315,6 @@ exports.launchPayment = (req, res) => {
       </form>
     </body>
   </html>`;
-  
   res.setHeader("Content-Type", "text/html; charset=utf-8");
   return res.send(html);
 };
@@ -344,67 +323,41 @@ exports.launchPayment = (req, res) => {
 exports.handleWebhook = async (req, res) => {
   try {
     let decoded = null;
-
-    // Handle different content types BillDesk might send
     if (req.is("application/jose") || typeof req.body === 'string') {
       decoded = billdesk.verifyJws(req.body);
     } else if (req.is("application/x-www-form-urlencoded")) {
       const trxBlob = req.body?.transaction_response;
-      // If your BillDesk setup uses encrypted response, implement decryption here
-      // For now, treating as JWS
-      if (trxBlob) {
-        decoded = billdesk.verifyJws(trxBlob);
-      } else {
-        decoded = req.body;
-      }
+      decoded = trxBlob ? billdesk.verifyJws(trxBlob) : req.body;
     } else {
       decoded = req.body;
     }
 
-    console.log('Webhook received:', decoded);
+    console.log('Webhook received payload:', decoded);
 
-    // Process payment based on auth_status
-    // auth_status: "0300" = Success, "0399" = Failure, "0002" = Pending
-    const isSuccess = decoded.auth_status === '0300' || 
-                      decoded.transaction_error_type === 'success';
+    // Example: mark success/pending/failed based on decoded.auth_status
+    // TODO: Update your database by decoded.orderid
 
-    // TODO: Update your database with payment status
-    // Use decoded.orderid to find the pending registration
-    // If isSuccess, complete the registration
-    // Store transaction details for record keeping
-
-    // Always return 200 to acknowledge receipt
     return res.json({ ack: true });
   } catch (error) {
-    console.error('Webhook processing error:', error.message, error.stack);
-    // Still return 200 so BillDesk doesn't retry indefinitely
+    console.error('Webhook processing error:', error.message);
     return res.status(200).json({ ack: true, error: error.message });
   }
 };
 
 // BillDesk - Return URL Handler (browser callback)
 exports.handleReturn = async (req, res) => {
-  // Many teams simply show "Processing…" and rely on webhook for actual status
-  // The frontend should poll the backend for payment status
   const html = `
   <!doctype html>
   <html>
-    <head>
-      <title>Payment Processing</title>
-      <meta charset="utf-8">
-    </head>
+    <head><meta charset="utf-8"><title>Payment Processing</title></head>
     <body>
       <h3>Thank you! Processing your payment...</h3>
       <p>Please wait while we confirm your payment. You will be redirected shortly.</p>
       <script>
-        // Optionally redirect to frontend after a few seconds
-        setTimeout(() => {
-          window.location.href = '/'; // Update with your frontend URL
-        }, 3000);
+        setTimeout(() => { window.location.href = '/'; }, 3000);
       </script>
     </body>
   </html>`;
-  
   res.type("html").send(html);
 };
 
@@ -412,17 +365,13 @@ exports.handleReturn = async (req, res) => {
 exports.retrieveTransaction = async (req, res) => {
   try {
     const { orderid } = req.body || {};
-    
-    if (!orderid) {
-      return res.status(400).json({ error: 'orderid required' });
-    }
+    if (!orderid) return res.status(400).json({ error: 'orderid required' });
 
-    // Check if BillDesk is configured using the isConfigured flag
     if (!billdesk.isConfigured) {
       return res.json({
         mock: true,
         message: 'BillDesk not configured - using mock mode',
-        orderid: orderid,
+        orderid,
         status: 'success',
         auth_status: '0300',
         transactionid: `TXN${Date.now()}`,
@@ -430,30 +379,35 @@ exports.retrieveTransaction = async (req, res) => {
       });
     }
 
-    const payload = { 
-      mercid: billdesk.mercId, 
-      orderid: orderid,
-      refund_details: true 
-    };
+    const payload = { mercid: billdesk.mercId, orderid, refund_details: true };
+    
+    console.log('=== BillDesk Retrieve Transaction ===');
+    console.log('1. Transaction Query Payload:', JSON.stringify(payload, null, 2));
     
     const jws = billdesk.jwsCompact(payload);
+    console.log('2. Encrypted Request (JWS):', jws);
+    
     const url = `${billdesk.baseUrl}/payments/ve1_2/transactions/get`;
-
-    const response = await axios.post(url, jws, { 
-      headers: billdesk.joseHeaders(),
+    const headers = billdesk.joseHeaders();
+    console.log('3. Request URL:', url);
+    console.log('4. Request Headers:', JSON.stringify(headers, null, 2));
+    
+    const response = await axios.post(url, jws, {
+      headers,
       timeout: 30000
     });
     
-    const decoded = billdesk.verifyJws(response.data);
+    console.log('5. Response Status:', response.status);
+    console.log('6. Response Data (encrypted):', response.data);
     
-    console.log('Retrieved transaction:', decoded);
+    const decoded = billdesk.verifyJws(response.data);
+    console.log('7. Response Data (decrypted):', JSON.stringify(decoded, null, 2));
+    console.log('=== Retrieve Transaction Complete ===\n');
     
     return res.json(decoded);
   } catch (error) {
-    console.error('Retrieve transaction error:', error.message, error.stack);
-    if (error.response) {
-      console.error('BillDesk API error response:', error.response.data);
-    }
+    console.error('Retrieve transaction error:', error.message);
+    if (error.response) console.error('BillDesk API error response:', error.response.data);
     return res.status(400).json({ error: error.message });
   }
 };

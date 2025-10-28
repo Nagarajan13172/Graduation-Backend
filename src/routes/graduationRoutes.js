@@ -2,15 +2,20 @@ const express = require('express');
 const router = express.Router();
 const controller = require('../controllers/graduationController');
 
-// Configuration Check
-router.get('/billdesk-config', controller.checkBillDeskConfig);
+// Health / Config
+router.get('/billdesk/config', controller.checkBillDeskConfig);
 
 // BillDesk Payment Routes
-router.post('/billdesk/orders', controller.createCheckoutSession); // Create order
-router.get('/billdesk/launch', controller.launchPayment); // Launch payment page
-router.post('/billdesk/webhook', controller.handleWebhook); // S2S webhook (source of truth)
-router.post('/billdesk/return', controller.handleReturn); // Browser return URL
-router.post('/billdesk/retrieve', controller.retrieveTransaction); // Retrieve transaction status
+router.post('/billdesk/orders', controller.createCheckoutSession);   // Create order
+router.get('/billdesk/launch', controller.launchPayment);            // Auto-post to SDK
+router.post('/billdesk/webhook', controller.handleWebhook);          // S2S webhook (source of truth)
+
+// IMPORTANT: Browser return is a GET
+// Use this only if your order 'ru' points to a backend URL like `${API_BASE}/billdesk/return`
+router.get('/billdesk/return', controller.handleReturn);
+
+// Retrieve transaction status (name/path consistency)
+router.post('/billdesk/transactions/get', controller.retrieveTransaction);
 
 // Registration and Data Routes
 router.post('/register', controller.register);
