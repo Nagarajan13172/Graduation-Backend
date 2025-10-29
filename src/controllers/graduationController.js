@@ -6,7 +6,7 @@ const archiver = require('archiver');
 const axios = require('axios');
 const { billdesk } = require('../../server/billdesk');
 
-const RU_PUBLIC = process.env.RU_PUBLIC || 'http://localhost:3000/payment/result';
+const RU_PUBLIC = process.env.RU_PUBLIC || 'http://localhost:3000/api/payment/callback';
 
 // ---------- Multer (only for multipart) ----------
 const storage = multer.diskStorage({
@@ -176,6 +176,25 @@ exports.createCheckoutSession = (req, res) => {
 
       // Generate a unique order id if none provided
       const orderId = incomingOrderId || `ORD${Date.now()}${Math.floor(Math.random() * 1000)}`;
+
+      // Save or update the orderid in the database
+      const updateOrderQuery = `
+        UPDATE students 
+        SET orderid = ?
+        WHERE id = (SELECT MAX(id) FROM students)
+      `;
+
+      await new Promise((resolve, reject) => {
+        db.run(updateOrderQuery, [orderId], function(err) {
+          if (err) {
+            console.error('Error saving orderid:', err);
+            reject(err);
+          } else {
+            console.log('Saved orderid for latest student:', orderId);
+            resolve();
+          }
+        });
+      });
 
       const order_date = billdesk.istTimestampCompact();
       console.log('Generated order_date:', order_date);
@@ -489,6 +508,9 @@ exports.register = (req, res) => {
       if (emailExists) return res.status(409).json({ error: 'Email is already registered' });
     }
 
+    // Generate initial order ID
+    const initialOrderId = `ORD${Date.now()}${Math.floor(Math.random() * 1000)}`;
+
     const params = [
       full_name.toUpperCase(),
       date_of_birth,
@@ -517,7 +539,14 @@ exports.register = (req, res) => {
       req.files.signature[0].path,
       toBool(declaration) ? 1 : 0,
       lunch_required,
-      companion_option
+      companion_option,
+      initialOrderId,            // Add orderid
+      'pending',                 // Initial payment_status
+      null,                     // bdorderid (will be set after payment)
+      null,                     // transaction_id
+      '500.00',                // payment_amount
+      null,                     // payment_date
+      null                      // payment_method_type
     ];
 
     db.run(
@@ -527,9 +556,10 @@ exports.register = (req, res) => {
         place_of_birth, community, mother_tongue, applicant_photo_path, aadhar_number, aadhar_copy_path,
         residence_certificate_path, degree_name, university_name, degree_pattern, convocation_year,
         degree_certificate_path, is_registered_graduate, other_university_certificate_path, occupation,
-        address, signature_path, declaration, lunch_required, companion_option, created_at, updated_at
+        address, signature_path, declaration, lunch_required, companion_option, orderid, payment_status,
+        bdorderid, transaction_id, payment_amount, payment_date, payment_method_type, created_at, updated_at
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
       `,
       params,
       function (err) {

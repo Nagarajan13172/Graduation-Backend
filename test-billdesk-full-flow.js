@@ -21,7 +21,7 @@ async function testCompleteFlow() {
     amount: "100",
     order_date: new Date().toISOString(),
     currency: "356",
-    ru: "http://localhost:3000/payment/result",
+    ru: "http://localhost:3000/api/payment/callback",
     additional_info: {
       additional_info1: "Test payment",
       additional_info2: "test@example.com"
