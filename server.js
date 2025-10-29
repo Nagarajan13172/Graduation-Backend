@@ -19,5 +19,5 @@ app.get('/', (_req, res) => res.json({ ok: true, service: 'Graduation Register A
 app.use('/api/graduation', graduationRoutes);
 app.use('/api/admin', adminRoutes); 
 
-const PORT = process.env.PORT || 4000;
+const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`✅ Graduation Register API running on http://localhost:${PORT}`));

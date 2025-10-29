@@ -177,18 +177,28 @@ exports.createCheckoutSession = (req, res) => {
       // Generate a unique order id if none provided
       const orderId = incomingOrderId || `ORD${Date.now()}${Math.floor(Math.random() * 1000)}`;
 
+      const order_date = billdesk.istTimestampCompact();
+      console.log('Generated order_date:', order_date);
+      console.log('order_date length:', order_date.length);
+      console.log('order_date characters:', [...order_date].map(c => `${c} (${c.charCodeAt(0)})`).join(', '));
+
       const orderPayload = {
         objectid: 'order',
         mercid: billdesk.mercId,
         orderid: orderId,
         amount,
-        currency,   // '356' (INR) as numeric for BD V2
+        currency,
+        order_date, // Using the logged timestamp
         ru,
         itemcode,
         additional_info: {
-          additional_info1: additional_info.purpose || full_name || '',
-          additional_info2: email || mobile_number || '',
-          additional_info3: mobile_number || ''
+          additional_info1: additional_info.purpose || 'Graduation Registration'
+        },
+        device: {
+          init_channel: 'internet',
+          ip: req.ip || '127.0.0.1',
+          user_agent: req.get('user-agent') || 'Mozilla/5.0',
+          accept_header: req.get('accept') || '*/*'
         }
       };
 

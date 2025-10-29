@@ -47,14 +47,36 @@ function validateConfig() {
 
 const isConfigured = validateConfig();
 
-/** yyyymmddHHMMss in IST */
-function istTimestampCompact() {
-  const istOffsetMin = 5 * 60 + 30;
+/** Generate compact timestamp (yyyyMMddHHmmss) for BD-Timestamp header */
+function generateBdTimestamp() {
+  const istOffsetMin = 5 * 60 + 30; // IST offset is +5:30
   const now = new Date();
   const istMs = now.getTime() + (istOffsetMin - now.getTimezoneOffset()) * 60000;
   const ist = new Date(istMs);
+  
   const pad = (n) => String(n).padStart(2, "0");
   return `${ist.getFullYear()}${pad(ist.getMonth()+1)}${pad(ist.getDate())}${pad(ist.getHours())}${pad(ist.getMinutes())}${pad(ist.getSeconds())}`;
+}
+
+/** Generate ISO 8601 timestamp for order_date field */
+function istTimestampCompact() {
+  const now = new Date();
+
+  // Compute IST time
+  const istOffset = 5.5 * 60 * 60000;
+  const istTime = new Date(now.getTime() + istOffset);
+
+  const pad = (n) => String(n).padStart(2, '0');
+
+  const yyyy = istTime.getUTCFullYear();
+  const MM = pad(istTime.getUTCMonth() + 1);
+  const dd = pad(istTime.getUTCDate());
+  const hh = pad(istTime.getUTCHours());
+  const mm = pad(istTime.getUTCMinutes());
+  const ss = pad(istTime.getUTCSeconds());
+
+  // Format: YYYY-MM-DDThh:mm:ss+05:30
+  return `${yyyy}-${MM}-${dd}T${hh}:${mm}:${ss}+05:30`;
 }
 
 /** 10-35 char trace id */
@@ -196,15 +218,14 @@ function jwsCompact(payload) {
 
 /** JOSE headers for BillDesk */
 function joseHeaders() {
-  const timestamp = istTimestampCompact();
+  const timestamp = generateBdTimestamp(); // Use the dedicated function for bd-timestamp
   const traceid = newTraceId();
   
   const headers = {
     "content-type": "application/jose",
     "accept": "application/jose",
-    "bd-timestamp": timestamp, // yyyymmddHHMMss in IST
-    "bd-traceid": traceid,            // 10-35 chars
-    // These two are sometimes required by gateways/tenants:
+    "bd-timestamp": timestamp, // yyyyMMddHHmmss format
+    "bd-traceid": traceid,    // 10-35 chars
     "bd-merchantid": BILLDESK_MERC_ID,
     "bd-clientid": BILLDESK_CLIENT_ID
   };
@@ -353,6 +374,8 @@ const billdesk = {
   jwsCompact,          // Legacy: Direct signing (for backward compatibility)
   verifyJws,           // Legacy: Direct verification
   joseHeaders,         // Generate API headers
+  generateBdTimestamp,  // Timestamp for headers (yyyyMMddHHmmss)
+  istTimestampCompact, // ISO 8601 timestamp for order_date
 };
 
 module.exports = { billdesk };
