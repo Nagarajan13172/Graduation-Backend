@@ -166,7 +166,7 @@ function signEncryptedToken(encryptedToken) {
   
   const signedToken = `${headerB64}.${payloadB64}.${signature}`;
   
-  console.log('Final Signed Token (first 150 chars):', signedToken.substring(0, 150) + '...');
+  console.log('Final Signed Token (first 150 chars):', signedToken );
   console.log('=== End JWS Signing ===\n');
 
   return signedToken;
@@ -262,7 +262,7 @@ function verifySignature(signedToken) {
   if (!BILLDESK_SECRET) throw new Error('BILLDESK_SECRET not configured');
   
   console.log('=== JWS Signature Verification ===');
-  console.log('Signed token to verify (first 100 chars):', signedToken.substring(0, 100) + '...');
+  console.log('Signed token to verify (first 100 chars):', signedToken);
   
   try {
     // Parse the JWS token: header.payload.signature
@@ -309,7 +309,7 @@ async function decryptResponse(jweToken) {
   if (!BILLDESK_ENCRYPTION_PASSWORD) throw new Error('BILLDESK_ENCRYPTION_PASSWORD not configured');
   
   console.log('=== JWE Decryption Process ===');
-  console.log('JWE token to decrypt (first 100 chars):', jweToken.substring(0, 100) + '...');
+  console.log('JWE token to decrypt (first 100 chars):', jweToken);
   
   try {
     // Load jose module dynamically

@@ -79,18 +79,22 @@ async function handlePaymentCallback(req, res) {
     const encryptedResponse = req.body.transaction_response || req.body;
     
     console.log('\n=== PROCESSING TRANSACTION RESPONSE ===');
-    console.log('Transaction Response (encrypted):', typeof encryptedResponse === 'string' ? 
-      encryptedResponse.substring(0, 100) + '...' : encryptedResponse);
+    if (encryptedResponse && typeof encryptedResponse === 'string') {
+      console.log('Encoded transaction_response (first 1000 chars):');
+      console.log(encryptedResponse);
+    } else {
+      console.log('Transaction Response (encrypted):', encryptedResponse);
+    }
     
     if (!encryptedResponse || typeof encryptedResponse !== 'string') {
       throw new Error('Invalid transaction response format. Expected JWT string.');
     }
     
     // CRITICAL: Decrypt and verify the response (signature validation happens here)
-    const response = await billdesk.processResponse(encryptedResponse);
-    console.log('\n=== DECRYPTED PAYMENT RESPONSE (After Signature Validation) ===');
-    console.log(JSON.stringify(response, null, 2));
-    console.log('Signature verification: SUCCESSFUL');
+  const response = await billdesk.processResponse(encryptedResponse);
+  console.log('\n=== DECRYPTED PAYMENT RESPONSE (After Signature Validation) ===');
+  console.log(JSON.stringify(response, null, 2));
+  console.log('Signature verification: SUCCESSFUL');
     console.log('=====================================\n');
 
     // Log the full response for debugging

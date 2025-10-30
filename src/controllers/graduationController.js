@@ -243,7 +243,6 @@ exports.createCheckoutSession = (req, res) => {
       // BillDesk requires EXACTLY 7 additional_info fields (minimum 3, maximum 7)
       // All fields must be present with 'NA' if value is unavailable
       const orderPayload = {
-        objectid: 'order',
         mercid: billdesk.mercId,
         orderid: orderId,
         amount,
@@ -253,18 +252,18 @@ exports.createCheckoutSession = (req, res) => {
         itemcode,
         additional_info: {
           additional_info1: sanitizeAdditionalInfo(full_name || additional_info?.student_name || 'Graduation Payment'),
-          additional_info2: sanitizeAdditionalInfo(email || additional_info?.email || 'NA'),
-          additional_info3: sanitizeAdditionalInfo(mobile_number || additional_info?.mobile || 'NA'),
-          additional_info4: sanitizeAdditionalInfo(orderId || 'NA'),
+          additional_info2: sanitizeAdditionalInfo(additional_info?.purpose || 'Graduation Registration'),
+          additional_info3: sanitizeAdditionalInfo(orderId || 'NA'),
+          additional_info4: sanitizeAdditionalInfo(mobile_number || additional_info?.mobile || 'NA'),
           additional_info5: sanitizeAdditionalInfo(convocation_year || additional_info?.year || 'NA'),
-          additional_info6: sanitizeAdditionalInfo(additional_info?.purpose || 'Graduation Registration'),
+          additional_info6: sanitizeAdditionalInfo(email || additional_info?.email || 'NA'),
           additional_info7: sanitizeAdditionalInfo(additional_info?.remarks || 'NA')
         },
         device: {
           init_channel: 'internet',
           ip: req.ip || '127.0.0.1',
           user_agent: req.get('user-agent') || 'Mozilla/5.0',
-          accept_header: req.get('accept') || '*/*'
+          accept_header: 'text/html'
         }
       };
 
@@ -312,7 +311,7 @@ exports.createCheckoutSession = (req, res) => {
 
       console.log('6. BillDesk Response Status:', response.status);
       console.log('7. BillDesk Response Data (encrypted + signed):', 
-                  typeof response.data === 'string' ? response.data.substring(0, 100) + '...' : response.data);
+          response.data);
 
       // NEW: Use processResponse to verify signature and decrypt
       const decoded = await billdesk.processResponse(response.data);
@@ -442,7 +441,20 @@ exports.handleWebhook = async (req, res) => {
       decoded = req.body;
     }
 
-    console.log('Webhook decrypted payload:', JSON.stringify(decoded, null, 2));
+    // Log the raw/encoded response (if present) and the decoded payload
+    if (encryptedResponse) {
+      try {
+        console.log('\n=== WEBHOOK: Encoded transaction_response (first 1000 chars) ===');
+        console.log(String(encryptedResponse).substring(0, 1000) + (String(encryptedResponse).length > 1000 ? '... [truncated]' : ''));
+      } catch (e) {
+        console.warn('Failed to stringify encoded response for logging:', e.message);
+      }
+    } else {
+      console.log('\n=== WEBHOOK: No encoded transaction_response found in request ===');
+    }
+
+    console.log('\n=== WEBHOOK: Decrypted payload ===');
+    console.log(JSON.stringify(decoded, null, 2));
 
     // CRITICAL: Check auth_status ONLY AFTER successful signature validation
     const orderid = decoded.orderid;
