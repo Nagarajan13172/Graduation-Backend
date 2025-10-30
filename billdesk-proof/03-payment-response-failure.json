@@ -1,0 +1,65 @@
+{
+  "test_name": "Payment Response - Failure",
+  "test_number": 3,
+  "description": "Mock failed payment response with error details",
+  "json_response": {
+    "objectid": "transaction",
+    "mercid": "BDUATV2KTK",
+    "orderid": "PROOF1761749826150FAILED",
+    "bdorderid": "BD1761749826150",
+    "transactionid": "TXN1761749826150",
+    "amount": "500.00",
+    "surcharge": "0.00",
+    "transaction_date": "2025-10-29T14:57:06.150Z",
+    "auth_status": "0399",
+    "transaction_error_type": "payment_processing_error",
+    "transaction_error_code": "E001",
+    "transaction_error_desc": "Payment cancelled by user",
+    "payment_method": {
+      "type": "netbanking"
+    },
+    "bankid": "HDFC",
+    "payment_category": "NBK",
+    "txn_process_type": "online"
+  },
+  "encoded_response": {
+    "full_token": "eyJhbGciOiJIUzI1NiIsImNsaWVudGlkIjoiYmR1YXR2Mmt0a3NqMSIsImtpZCI6InJrb0dhNFNEeGN0SCJ9.ZXlKaGJHY2lPaUprYVhJaUxDSmxibU1pT2lKQk1qVTJSME5OSWl3aWEybGtJam9pY210dlIyRTBVMFI0WTNSSUlpd2lZMnhwWlc1MGFXUWlPaUppWkhWaGRIWXlhM1JyYzJveEluMC4uVGRwXzJiNVA0TkxWa3BfbC5LZy1xQzRST3VPY0V1QTM1dEo3ZVFYUTBpS3lpOG0zTFVDNEI5aHlRVVYxcmVvaEUzUnYxTGdWcDFoZVY5X0d0VkFyR1pBSnlPS09UcmJ5VkJtSTAzdl9VRndrbWtUSGM4Sl8tUWZhUzE1MUsyN3FaZFgwOGZqZFQzc2pvTVBsTGFrUS1XYmVzMDVMTjIyc01KakFRVFVGck45UW10Zk1HeFZuV3NMS2xra3Q5WWd1YXluUm5FWWN2aVFkblVxRUZfVEtwTUNIRm8tcjRzZDYwVXp1VXA3ZzhPMmY4cVM0ZGRrTGhXLWQ3cVJGM1NKc2RDUHdaMHR6bmxCMjlmQ2QxVEM0ZW11QjVyZENNYnBJRFZFd1lOYjB6b1BqbkRYWEsxQWo3di1lWi1vRFUtWjZGZnBPSVp1ZXpTakM3MzI4RWljVUt0eER4WDFnSWduR2tEQXg0WGx5TTFvUUdhTVd2eEZyOG9ldUcxQzZ6c3huVHdmVmc1bEs0eGEtc3k4REJHcWdkN3A0VktNQXdxQmlOc0h0eDNfUnVCb0JXbVktUUZPTXBjaENUY3VVemE3NDBBV1pDMklxdWp5SzBhM0toMjlDY0tMaHQweXpnZEI1UWV6a0pQZThXQTltMWNEd25XSWJVM3lELTJwOVVuOGdEem1vRWt6a25FVmxhekVxUUJHVHdkeWFoOHdjcUpjUmJpZ1BKSnJYY0J6b1VLalBYU3VCMjdWa05DMEpDUDJwSEJtT2FrTWVXLWktZ0ZLNHBLeWVxMnhXMXZaVElreGZGV2lsVVo2bDdndExDcDV1cE12dnpjbGhCVGs1R1puUnB6bzRlM3BYaEtBbmN5MVVKNUZkNm9rWVRGc0JoYW9CcXhqUVE5TG1PcEEueXVRbHZZNzZyaTdkektYT0ttRWtJdw.6wHjprphoZ21dp-gQ9wp7GDnDNNdNbFSLEccfJ9czJk",
+    "length": 1211,
+    "first_200_chars": "eyJhbGciOiJIUzI1NiIsImNsaWVudGlkIjoiYmR1YXR2Mmt0a3NqMSIsImtpZCI6InJrb0dhNFNEeGN0SCJ9.ZXlKaGJHY2lPaUprYVhJaUxDSmxibU1pT2lKQk1qVTJSME5OSWl3aWEybGtJam9pY210dlIyRTBVMFI0WTNSSUlpd2lZMnhwWlc1MGFXUWlPaUppWkh"
+  },
+  "decoded_response": {
+    "objectid": "transaction",
+    "mercid": "BDUATV2KTK",
+    "orderid": "PROOF1761749826150FAILED",
+    "bdorderid": "BD1761749826150",
+    "transactionid": "TXN1761749826150",
+    "amount": "500.00",
+    "surcharge": "0.00",
+    "transaction_date": "2025-10-29T14:57:06.150Z",
+    "auth_status": "0399",
+    "transaction_error_type": "payment_processing_error",
+    "transaction_error_code": "E001",
+    "transaction_error_desc": "Payment cancelled by user",
+    "payment_method": {
+      "type": "netbanking"
+    },
+    "bankid": "HDFC",
+    "payment_category": "NBK",
+    "txn_process_type": "online"
+  },
+  "screenshot_data": {
+    "payment_mode": "Online Payment",
+    "gateway_transaction_ref": "TXN1761749826150",
+    "orderid": "PROOF1761749826150FAILED",
+    "transaction_amount": "₹500.00",
+    "status": "Failed",
+    "auth_status": "0399",
+    "purpose": "Graduation Registration Fee",
+    "status_description": "Payment cancelled by user",
+    "error_code": "E001",
+    "error_type": "payment_processing_error",
+    "datetime": "29/10/2025, 8:27:06 pm",
+    "payment_method": "NETBANKING"
+  },
+  "status": "SUCCESS"
+}

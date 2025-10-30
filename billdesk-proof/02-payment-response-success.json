@@ -1,0 +1,59 @@
+{
+  "test_name": "Payment Response - Success",
+  "test_number": 2,
+  "description": "Mock successful payment response with all required fields",
+  "json_response": {
+    "objectid": "transaction",
+    "mercid": "BDUATV2KTK",
+    "orderid": "PROOF1761749826135SUCCESS",
+    "bdorderid": "BD1761749826135",
+    "transactionid": "TXN1761749826135",
+    "amount": "500.00",
+    "surcharge": "0.00",
+    "transaction_date": "2025-10-29T14:57:06.135Z",
+    "auth_status": "0300",
+    "payment_method": {
+      "type": "netbanking"
+    },
+    "bank_ref_no": "BANK1761749826135",
+    "bankid": "HDFC",
+    "payment_category": "NBK",
+    "txn_process_type": "online"
+  },
+  "encoded_response": {
+    "full_token": "eyJhbGciOiJIUzI1NiIsImNsaWVudGlkIjoiYmR1YXR2Mmt0a3NqMSIsImtpZCI6InJrb0dhNFNEeGN0SCJ9.ZXlKaGJHY2lPaUprYVhJaUxDSmxibU1pT2lKQk1qVTJSME5OSWl3aWEybGtJam9pY210dlIyRTBVMFI0WTNSSUlpd2lZMnhwWlc1MGFXUWlPaUppWkhWaGRIWXlhM1JyYzJveEluMC4uZjBQVzI3MzAyYVp5X3JxTS40cERIbmdWVGZSeFhDS28yTHYxZlJCaWtIRnNLNjFnUXNHQ0daM3NGeUZ5X2Z1RVhCQnQ2ajJFRmhPeFdkblBtRE9OaG12RjRRcVNWajhkamJpYlhrcU8zX3d4WE9sbXZudVEwZnlxa1RFOWd6ZjY3NFljYzZTczE0VzJXMXkyRlVsRlRKQ1lJWUtqSGlybDh5UTFHVWdxQXo5c3hCbXZaMlhpRUpNSVhZbGpudmh4ZTEtX0hQTlNVYmMzc3FpTHd1NjFzd2xSMjMxOU9wcWFDZWNRT3ZWbUhqSFNYTTYzSVdJZ1hDMnBMVEJDNkZMTWRoRDkxSnRGbEFQX1ZfZHlHcHVwNHQ4NEhiVWx4Um90Tk1qZkFzbFlLTnVXV1h5TW1lODV5X245Wk84YXYyQWYxTFFZQXVxVGJ3dTRfMlJnbFRfcjJNbzdGQUx3cncyOE41UnRXbXdVeVZPUHYwUWZLTEhFRTFKaE1mMUlGRXhPVTl1ZmFERkh0cHNQY0FkakZsSTlESzc4bU5aOWNDUGM3d0pvV2N1X0tsUUlYODZ1QmY2VmtBUU5YWkZpM1dIcU9UVmNvZEswM29OLXVLOEFEamthclhMbmh2YjRJVEpMYmwzcE5ZN1phZ1RNdWlqNmRVd3FFdjh3cVhueTdRWGdsZVBIelJ6WGhfQ2hFcE9ON3RwbzZfNWhBS1VSeF84MUY1QS5mUmlSUVhSZVpnUXhqNjNuelllTVh3.ruo-60JUwNUiHLa-4_VTQSeYX51OEOEr-6XVc-8CTks",
+    "length": 1029,
+    "first_200_chars": "eyJhbGciOiJIUzI1NiIsImNsaWVudGlkIjoiYmR1YXR2Mmt0a3NqMSIsImtpZCI6InJrb0dhNFNEeGN0SCJ9.ZXlKaGJHY2lPaUprYVhJaUxDSmxibU1pT2lKQk1qVTJSME5OSWl3aWEybGtJam9pY210dlIyRTBVMFI0WTNSSUlpd2lZMnhwWlc1MGFXUWlPaUppWkh"
+  },
+  "decoded_response": {
+    "objectid": "transaction",
+    "mercid": "BDUATV2KTK",
+    "orderid": "PROOF1761749826135SUCCESS",
+    "bdorderid": "BD1761749826135",
+    "transactionid": "TXN1761749826135",
+    "amount": "500.00",
+    "surcharge": "0.00",
+    "transaction_date": "2025-10-29T14:57:06.135Z",
+    "auth_status": "0300",
+    "payment_method": {
+      "type": "netbanking"
+    },
+    "bank_ref_no": "BANK1761749826135",
+    "bankid": "HDFC",
+    "payment_category": "NBK",
+    "txn_process_type": "online"
+  },
+  "screenshot_data": {
+    "payment_mode": "Online Payment",
+    "gateway_transaction_ref": "TXN1761749826135",
+    "orderid": "PROOF1761749826135SUCCESS",
+    "transaction_amount": "₹500.00",
+    "status": "Success",
+    "auth_status": "0300",
+    "purpose": "Graduation Registration Fee",
+    "bank_reference": "BANK1761749826135",
+    "datetime": "29/10/2025, 8:27:06 pm",
+    "payment_method": "NETBANKING"
+  },
+  "status": "SUCCESS"
+}

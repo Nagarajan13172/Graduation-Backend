@@ -1,0 +1,32 @@
+{
+  "test_name": "Retrieve Transaction API",
+  "test_number": 4,
+  "description": "Generate proof of Retrieve Transaction API request and response",
+  "json_request": {
+    "mercid": "BDUATV2KTK",
+    "orderid": "PROOF1761749826160RETRIEVE",
+    "refund_details": true
+  },
+  "bd_traceid": "9999a4a2523b8afd6685",
+  "bd_timestamp": "20251030072706",
+  "encrypted_signed_request": {
+    "full_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6InJrb0dhNFNEeGN0SCIsImNsaWVudGlkIjoiYmR1YXR2Mmt0a3NqMSJ9.eyJtZXJjaWQiOiJCRFVBVFYyS1RLIiwib3JkZXJpZCI6IlBST09GMTc2MTc0OTgyNjE2MFJFVFJJRVZFIiwicmVmdW5kX2RldGFpbHMiOnRydWUsImlhdCI6MTc2MTc0OTgyNn0.TpFqYVP3opBLdp_yFMfrNmMID8QALapNAC4fjSG5r8o",
+    "length": 280,
+    "first_200_chars": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6InJrb0dhNFNEeGN0SCIsImNsaWVudGlkIjoiYmR1YXR2Mmt0a3NqMSJ9.eyJtZXJjaWQiOiJCRFVBVFYyS1RLIiwib3JkZXJpZCI6IlBST09GMTc2MTc0OTgyNjE2MFJFVFJJRVZFIiwicmVmdW5kX2RldGF"
+  },
+  "decoded_response": {
+    "objectid": "transaction",
+    "mercid": "BDUATV2KTK",
+    "orderid": "PROOF1761749826160RETRIEVE",
+    "bdorderid": "BD1761749826169",
+    "transactionid": "TXN1761749826169",
+    "amount": "500.00",
+    "auth_status": "0300",
+    "transaction_date": "2025-10-29T14:57:06.169Z",
+    "payment_method": {
+      "type": "netbanking"
+    }
+  },
+  "status": "SUCCESS (Mock)",
+  "note": "Real API call requires existing orderid from BillDesk"
+}

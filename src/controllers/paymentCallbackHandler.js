@@ -60,11 +60,15 @@ verifyPaymentColumns()
 
 /**
  * Handle BillDesk payment callback
- * Updates payment status in database based on callback response
+ * NOTE: This handler is DEPRECATED in favor of webhook handler
+ * It should only be used as a fallback or for the /callback route
+ * The webhook handler in graduationController.js is the source of truth
  */
 async function handlePaymentCallback(req, res) {
   try {
     console.log('\n=== BILLDESK PAYMENT CALLBACK RECEIVED ===');
+    console.log('WARNING: This is the fallback callback handler');
+    console.log('Webhook handler should be the primary source of truth');
     console.log('Timestamp:', new Date().toISOString());
     console.log('Request Headers:', JSON.stringify(req.headers, null, 2));
     console.log('Raw Request Body:', typeof req.body === 'string' ? 
@@ -75,16 +79,18 @@ async function handlePaymentCallback(req, res) {
     const encryptedResponse = req.body.transaction_response || req.body;
     
     console.log('\n=== PROCESSING TRANSACTION RESPONSE ===');
-    console.log('Transaction Response:', encryptedResponse);
+    console.log('Transaction Response (encrypted):', typeof encryptedResponse === 'string' ? 
+      encryptedResponse.substring(0, 100) + '...' : encryptedResponse);
     
     if (!encryptedResponse || typeof encryptedResponse !== 'string') {
       throw new Error('Invalid transaction response format. Expected JWT string.');
     }
     
-    // Decrypt and verify the response
+    // CRITICAL: Decrypt and verify the response (signature validation happens here)
     const response = await billdesk.processResponse(encryptedResponse);
-    console.log('\n=== DECRYPTED PAYMENT RESPONSE ===');
+    console.log('\n=== DECRYPTED PAYMENT RESPONSE (After Signature Validation) ===');
     console.log(JSON.stringify(response, null, 2));
+    console.log('Signature verification: SUCCESSFUL');
     console.log('=====================================\n');
 
     // Log the full response for debugging
@@ -97,7 +103,13 @@ async function handlePaymentCallback(req, res) {
     const bdorderid = response.bdorderid || null;
     const transactionid = response.transactionid || null;
     const amount = response.amount?.toString() || null;
-    const auth_status = response.auth_status; // this is the payment status
+    
+    // CRITICAL: Check auth_status ONLY AFTER successful signature validation
+    const auth_status = response.auth_status;
+    console.log('\n=== AUTH STATUS CHECK (After Signature Validation) ===');
+    console.log('auth_status:', auth_status);
+    console.log('Is successful payment (0300)?', auth_status === '0300');
+    console.log('=====================================================\n');
     
     // Format transaction date as ISO string or null
     let transaction_date = null;
@@ -112,8 +124,20 @@ async function handlePaymentCallback(req, res) {
     // Safely get payment method type
     const payment_method_type = response.payment_method?.type || 'unknown';
 
-    // Map BillDesk status to our status
+    // Map BillDesk status to our status (ONLY after signature validation)
     const payment_status = auth_status === '0300' ? 'paid' : 'failed';
+    
+    // Generate receipt ONLY for successful payments
+    let receipt_number = null;
+    let receipt_generated_at = null;
+    if (auth_status === '0300') {
+      receipt_number = `RCP${Date.now()}${Math.floor(Math.random() * 1000)}`;
+      receipt_generated_at = new Date().toISOString();
+      console.log('\n=== RECEIPT GENERATED (auth_status === 0300) ===');
+      console.log('Receipt Number:', receipt_number);
+      console.log('Generated At:', receipt_generated_at);
+      console.log('==============================================\n');
+    }
     
     // Get detailed payment info
     const payment_details = {
@@ -136,6 +160,7 @@ async function handlePaymentCallback(req, res) {
     console.log('payment_status:', payment_status);
     console.log('transaction_date:', transaction_date);
     console.log('payment_method_type:', payment_method_type);
+    console.log('receipt_number:', receipt_number);
     console.log('================================\n');
 
     // Validate required fields
@@ -171,6 +196,9 @@ async function handlePaymentCallback(req, res) {
         if (!columnNames.includes('payment_bank_ref')) missingColumns.push('payment_bank_ref TEXT');
         if (!columnNames.includes('payment_error_code')) missingColumns.push('payment_error_code TEXT');
         if (!columnNames.includes('payment_error_desc')) missingColumns.push('payment_error_desc TEXT');
+        if (!columnNames.includes('original_response_token')) missingColumns.push('original_response_token TEXT');
+        if (!columnNames.includes('receipt_number')) missingColumns.push('receipt_number TEXT');
+        if (!columnNames.includes('receipt_generated_at')) missingColumns.push('receipt_generated_at TEXT');
 
         // Add missing columns if any
         if (missingColumns.length > 0) {
@@ -191,6 +219,7 @@ async function handlePaymentCallback(req, res) {
     });
 
     // Update database with payment status and details
+    // IMPORTANT: Store original_response_token without modification
     const updateQuery = `
       UPDATE students 
       SET 
@@ -202,7 +231,10 @@ async function handlePaymentCallback(req, res) {
         payment_method_type = ?,
         payment_bank_ref = ?,
         payment_error_code = ?,
-        payment_error_desc = ?
+        payment_error_desc = ?,
+        original_response_token = ?,
+        receipt_number = ?,
+        receipt_generated_at = ?
       WHERE orderid = ?
     `;
 
@@ -216,6 +248,9 @@ async function handlePaymentCallback(req, res) {
       payment_details.bank_ref_no,
       payment_details.error_code,
       payment_details.error_desc,
+      encryptedResponse, // Store original encrypted response WITHOUT modification
+      receipt_number,
+      receipt_generated_at,
       orderid
     ], function(err) {
       if (err) {

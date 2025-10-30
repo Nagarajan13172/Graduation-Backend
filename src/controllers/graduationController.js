@@ -174,8 +174,40 @@ exports.createCheckoutSession = (req, res) => {
         ru = RU_PUBLIC
       } = req.body || {};
 
+      // Validate RU and webhook URLs don't contain parameters
+      if (ru && (ru.includes('?') || ru.includes('&'))) {
+        return res.status(400).json({ 
+          error: 'RU (Return URL) must not contain query parameters (?&)' 
+        });
+      }
+
       // Generate a unique order id if none provided
-      const orderId = incomingOrderId || `ORD${Date.now()}${Math.floor(Math.random() * 1000)}`;
+      // CRITICAL: orderid must be alphanumeric only (no special characters)
+      let orderId = incomingOrderId;
+      if (!orderId) {
+        orderId = `ORD${Date.now()}${Math.floor(Math.random() * 1000)}`;
+      }
+      
+      // Validate orderid: alphanumeric only, no special characters
+      if (!/^[A-Za-z0-9]+$/.test(orderId)) {
+        return res.status(400).json({ 
+          error: 'orderid must contain only alphanumeric characters (no special characters allowed)' 
+        });
+      }
+
+      // Check orderid uniqueness in database
+      const existingOrder = await new Promise((resolve, reject) => {
+        db.get('SELECT orderid FROM students WHERE orderid = ?', [orderId], (err, row) => {
+          if (err) reject(err);
+          else resolve(row);
+        });
+      });
+
+      if (existingOrder) {
+        return res.status(400).json({ 
+          error: 'orderid already exists. Please use a unique orderid.' 
+        });
+      }
 
       // Save or update the orderid in the database
       const updateOrderQuery = `
@@ -201,6 +233,15 @@ exports.createCheckoutSession = (req, res) => {
       console.log('order_date length:', order_date.length);
       console.log('order_date characters:', [...order_date].map(c => `${c} (${c.charCodeAt(0)})`).join(', '));
 
+      // Helper function to sanitize additional info (only @ , . – allowed)
+      const sanitizeAdditionalInfo = (value) => {
+        if (!value || value === '') return 'NA';
+        // Remove disallowed special characters, keep only: alphanumeric, @, comma, period, hyphen, spaces
+        return String(value).replace(/[^a-zA-Z0-9@,.\-\s]/g, '').trim() || 'NA';
+      };
+
+      // BillDesk requires EXACTLY 7 additional_info fields (minimum 3, maximum 7)
+      // All fields must be present with 'NA' if value is unavailable
       const orderPayload = {
         objectid: 'order',
         mercid: billdesk.mercId,
@@ -211,7 +252,13 @@ exports.createCheckoutSession = (req, res) => {
         ru,
         itemcode,
         additional_info: {
-          additional_info1: additional_info.purpose || 'Graduation Registration'
+          additional_info1: sanitizeAdditionalInfo(full_name || additional_info?.student_name || 'Graduation Payment'),
+          additional_info2: sanitizeAdditionalInfo(email || additional_info?.email || 'NA'),
+          additional_info3: sanitizeAdditionalInfo(mobile_number || additional_info?.mobile || 'NA'),
+          additional_info4: sanitizeAdditionalInfo(orderId || 'NA'),
+          additional_info5: sanitizeAdditionalInfo(convocation_year || additional_info?.year || 'NA'),
+          additional_info6: sanitizeAdditionalInfo(additional_info?.purpose || 'Graduation Registration'),
+          additional_info7: sanitizeAdditionalInfo(additional_info?.remarks || 'NA')
         },
         device: {
           init_channel: 'internet',
@@ -227,6 +274,24 @@ exports.createCheckoutSession = (req, res) => {
       // NEW: Encrypt then Sign (correct BillDesk flow)
       const finalToken = await billdesk.createOrderToken(orderPayload);
       console.log('2. Final Token (encrypted + signed):', finalToken.substring(0, 150) + '...');
+
+      // IMPORTANT: Store the original request token for BillDesk support/debugging
+      const storeRequestTokenQuery = `
+        UPDATE students 
+        SET original_request_token = ?
+        WHERE orderid = ?
+      `;
+      await new Promise((resolve, reject) => {
+        db.run(storeRequestTokenQuery, [finalToken, orderId], function(err) {
+          if (err) {
+            console.error('Error storing original request token:', err);
+            // Don't fail the request, just log the error
+          } else {
+            console.log('Stored original request token for orderid:', orderId);
+          }
+          resolve();
+        });
+      });
 
       const headers = billdesk.joseHeaders();
       console.log('3. Request Headers:', JSON.stringify(headers, null, 2));
@@ -349,45 +414,278 @@ exports.launchPayment = (req, res) => {
 };
 
 // BillDesk - Webhook Handler (S2S callback - source of truth)
+// This is the ONLY place where payment status should be updated
+// RU (browser callback) should ONLY show acknowledgment
 exports.handleWebhook = async (req, res) => {
   try {
+    console.log('\n=== BILLDESK WEBHOOK RECEIVED (S2S) ===');
+    console.log('Timestamp:', new Date().toISOString());
+    console.log('Request Headers:', JSON.stringify(req.headers, null, 2));
+    
+    let encryptedResponse = null;
     let decoded = null;
+    
+    // Extract encrypted response based on content type
     if (req.is("application/jose") || typeof req.body === 'string') {
-      decoded = billdesk.verifyJws(req.body);
+      encryptedResponse = req.body;
+      // Use processResponse for full verification (signature + decryption)
+      decoded = await billdesk.processResponse(req.body);
     } else if (req.is("application/x-www-form-urlencoded")) {
       const trxBlob = req.body?.transaction_response;
-      decoded = trxBlob ? billdesk.verifyJws(trxBlob) : req.body;
+      if (trxBlob) {
+        encryptedResponse = trxBlob;
+        decoded = await billdesk.processResponse(trxBlob);
+      } else {
+        decoded = req.body;
+      }
     } else {
       decoded = req.body;
     }
 
-    console.log('Webhook received payload:', decoded);
+    console.log('Webhook decrypted payload:', JSON.stringify(decoded, null, 2));
 
-    // Example: mark success/pending/failed based on decoded.auth_status
-    // TODO: Update your database by decoded.orderid
+    // CRITICAL: Check auth_status ONLY AFTER successful signature validation
+    const orderid = decoded.orderid;
+    const auth_status = decoded.auth_status;
+    const bdorderid = decoded.bdorderid;
+    const transactionid = decoded.transactionid;
+    const amount = decoded.amount?.toString();
+    
+    if (!orderid) {
+      console.error('Webhook: Missing orderid in response');
+      return res.status(200).json({ ack: true, error: 'Missing orderid' });
+    }
 
-    return res.json({ ack: true });
+    // Map BillDesk status to our status
+    // IMPORTANT: Only check auth_status after signature verification
+    const payment_status = auth_status === '0300' ? 'paid' : 'failed';
+    
+    // Format transaction date
+    let transaction_date = null;
+    if (decoded.transaction_date) {
+      try {
+        transaction_date = new Date(decoded.transaction_date).toISOString();
+      } catch (e) {
+        console.warn('Invalid transaction date format:', decoded.transaction_date);
+      }
+    }
+    
+    const payment_method_type = decoded.payment_method?.type || 'unknown';
+    
+    const payment_details = {
+      status: payment_status,
+      auth_status,
+      error_type: decoded.transaction_error_type,
+      error_code: decoded.transaction_error_code,
+      error_desc: decoded.transaction_error_desc,
+      bank_ref_no: decoded.bank_ref_no,
+      payment_category: decoded.payment_category,
+      txn_process_type: decoded.txn_process_type,
+      bankid: decoded.bankid
+    };
+
+    console.log('Webhook payment details:', payment_details);
+
+    // Generate receipt number only for successful payments (auth_status === '0300')
+    let receipt_number = null;
+    let receipt_generated_at = null;
+    if (auth_status === '0300') {
+      receipt_number = `RCP${Date.now()}${Math.floor(Math.random() * 1000)}`;
+      receipt_generated_at = new Date().toISOString();
+      console.log('Generated receipt:', receipt_number);
+    }
+
+    // Update database with payment status
+    const updateQuery = `
+      UPDATE students 
+      SET 
+        payment_status = ?,
+        bdorderid = ?,
+        transaction_id = ?,
+        payment_amount = ?,
+        payment_date = ?,
+        payment_method_type = ?,
+        payment_bank_ref = ?,
+        payment_error_code = ?,
+        payment_error_desc = ?,
+        original_response_token = ?,
+        receipt_number = ?,
+        receipt_generated_at = ?,
+        updated_at = datetime('now')
+      WHERE orderid = ?
+    `;
+
+    await new Promise((resolve, reject) => {
+      db.run(updateQuery, [
+        payment_status,
+        bdorderid,
+        transactionid,
+        amount,
+        transaction_date,
+        payment_method_type,
+        payment_details.bank_ref_no,
+        payment_details.error_code,
+        payment_details.error_desc,
+        encryptedResponse, // Store original encrypted response
+        receipt_number,
+        receipt_generated_at,
+        orderid
+      ], function(err) {
+        if (err) {
+          console.error('Webhook DB update error:', err);
+          reject(err);
+        } else {
+          if (this.changes === 0) {
+            console.warn('Webhook: No record found for orderid:', orderid);
+          } else {
+            console.log('Webhook: Payment status updated successfully');
+            console.log('Order ID:', orderid);
+            console.log('Payment Status:', payment_status);
+            console.log('Receipt Number:', receipt_number);
+          }
+          resolve();
+        }
+      });
+    });
+
+    // Send acknowledgment to BillDesk
+    return res.status(200).json({ ack: true });
+    
   } catch (error) {
     console.error('Webhook processing error:', error.message);
+    console.error('Stack:', error.stack);
+    // Always send ack: true to BillDesk even on error to prevent retries
     return res.status(200).json({ ack: true, error: error.message });
   }
 };
 
 // BillDesk - Return URL Handler (browser callback)
+// IMPORTANT: This should ONLY display acknowledgment to the user
+// All payment processing should happen in the webhook handler
+// This is a GET request with transaction_response in query params or POST with form data
 exports.handleReturn = async (req, res) => {
-  const html = `
-  <!doctype html>
-  <html>
-    <head><meta charset="utf-8"><title>Payment Processing</title></head>
-    <body>
-      <h3>Thank you! Processing your payment...</h3>
-      <p>Please wait while we confirm your payment. You will be redirected shortly.</p>
-      <script>
-        setTimeout(() => { window.location.href = '/'; }, 3000);
-      </script>
-    </body>
-  </html>`;
-  res.type("html").send(html);
+  try {
+    console.log('\n=== BILLDESK RETURN URL (Browser Callback) ===');
+    console.log('This is for DISPLAY ONLY - payment processing happens in webhook');
+    
+    // Extract transaction response from query params or form body
+    const encryptedResponse = req.query?.transaction_response || req.body?.transaction_response;
+    
+    let orderid = null;
+    let payment_status = 'processing';
+    
+    if (encryptedResponse) {
+      try {
+        // Verify and decrypt the response to get orderid for display
+        const decoded = await billdesk.processResponse(encryptedResponse);
+        orderid = decoded.orderid;
+        const auth_status = decoded.auth_status;
+        payment_status = auth_status === '0300' ? 'success' : 'failed';
+        
+        console.log('RU Handler - orderid:', orderid, 'status:', payment_status);
+      } catch (error) {
+        console.error('RU Handler - Error decoding response:', error.message);
+      }
+    }
+    
+    // Return HTML acknowledgment page
+    const html = `
+    <!doctype html>
+    <html>
+      <head>
+        <meta charset="utf-8">
+        <title>Payment ${payment_status === 'success' ? 'Successful' : 'Processing'}</title>
+        <style>
+          body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          }
+          .container {
+            background: white;
+            padding: 40px;
+            border-radius: 10px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+            text-align: center;
+            max-width: 500px;
+          }
+          h1 {
+            color: #333;
+            margin-bottom: 20px;
+          }
+          .status {
+            font-size: 48px;
+            margin: 20px 0;
+          }
+          .success { color: #28a745; }
+          .processing { color: #ffc107; }
+          .message {
+            color: #666;
+            margin: 20px 0;
+            line-height: 1.6;
+          }
+          .orderid {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 5px;
+            font-family: monospace;
+            margin: 20px 0;
+            word-break: break-all;
+          }
+          .note {
+            font-size: 12px;
+            color: #999;
+            margin-top: 20px;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="status ${payment_status}">${payment_status === 'success' ? '✓' : '⏳'}</div>
+          <h1>${payment_status === 'success' ? 'Payment Successful!' : 'Payment Processing'}</h1>
+          ${orderid ? `<div class="orderid">Order ID: ${orderid}</div>` : ''}
+          <div class="message">
+            ${payment_status === 'success' 
+              ? 'Thank you! Your payment has been received successfully. Your registration is being processed.' 
+              : 'Thank you! Your payment is being processed. Please wait while we confirm your transaction.'}
+          </div>
+          <div class="note">
+            ${payment_status === 'success' 
+              ? 'You will receive a confirmation email shortly with your receipt.' 
+              : 'This page will redirect automatically. Please do not refresh or close this window.'}
+          </div>
+        </div>
+        <script>
+          // Redirect to home page after 5 seconds
+          setTimeout(() => { 
+            window.location.href = '/'; 
+          }, 5000);
+        </script>
+      </body>
+    </html>`;
+    
+    res.type("html").send(html);
+    
+  } catch (error) {
+    console.error('RU Handler error:', error.message);
+    const errorHtml = `
+    <!doctype html>
+    <html>
+      <head><meta charset="utf-8"><title>Payment Status</title></head>
+      <body>
+        <h3>Thank you! Processing your payment...</h3>
+        <p>Please wait while we confirm your payment. You will be redirected shortly.</p>
+        <script>
+          setTimeout(() => { window.location.href = '/'; }, 3000);
+        </script>
+      </body>
+    </html>`;
+    res.type("html").send(errorHtml);
+  }
 };
 
 // BillDesk - Retrieve Transaction Status
@@ -438,6 +736,36 @@ exports.retrieveTransaction = async (req, res) => {
     console.error('Retrieve transaction error:', error.message);
     if (error.response) console.error('BillDesk API error response:', error.response.data);
     return res.status(400).json({ error: error.message });
+  }
+};
+
+// BillDesk - Check Pending Transactions (Reconciliation)
+// This endpoint triggers a check of all pending transactions
+exports.checkPendingTransactions = async (req, res) => {
+  try {
+    const { olderThanMinutes = 10 } = req.body || {};
+    
+    console.log('=== Triggering Pending Transaction Check ===');
+    console.log('Checking transactions older than', olderThanMinutes, 'minutes');
+    
+    // Import the utility
+    const { checkPendingTransactions } = require('../utils/checkPendingTransactions');
+    
+    const result = await checkPendingTransactions(olderThanMinutes);
+    
+    return res.json({
+      success: true,
+      message: 'Pending transaction check completed',
+      result
+    });
+    
+  } catch (error) {
+    console.error('Error checking pending transactions:', error.message);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to check pending transactions',
+      message: error.message
+    });
   }
 };
 

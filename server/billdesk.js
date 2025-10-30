@@ -79,9 +79,16 @@ function istTimestampCompact() {
   return `${yyyy}-${MM}-${dd}T${hh}:${mm}:${ss}+05:30`;
 }
 
-/** 10-35 char trace id */
+/** 10-35 char trace id (alphanumeric only, no special characters) */
 function newTraceId() {
-  return crypto.randomBytes(10).toString('hex');
+  // Generate alphanumeric traceid (10-35 chars, no special characters)
+  const traceid = crypto.randomBytes(10).toString('hex'); // 20 chars, alphanumeric
+  // Validate it's alphanumeric only
+  if (!/^[A-Za-z0-9]+$/.test(traceid)) {
+    console.warn('Generated traceid contains non-alphanumeric characters, regenerating');
+    return newTraceId(); // Recursive retry
+  }
+  return traceid;
 }
 
 /**

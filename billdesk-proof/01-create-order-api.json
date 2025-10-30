@@ -1,0 +1,46 @@
+{
+  "test_name": "Create Order API",
+  "test_number": 1,
+  "description": "Generate proof of Create Order API request and response",
+  "json_request": {
+    "objectid": "order",
+    "mercid": "BDUATV2KTK",
+    "orderid": "PROOF1761749825559657",
+    "amount": "500.00",
+    "currency": "356",
+    "order_date": "2025-10-29T20:27:05+05:30",
+    "ru": "http://localhost:3000/payment/result",
+    "itemcode": "DIRECT",
+    "additional_info": {
+      "additional_info1": "Test Student Name",
+      "additional_info2": "test@example.com",
+      "additional_info3": "9876543210",
+      "additional_info4": "PROOF1761749825559657",
+      "additional_info5": "2025",
+      "additional_info6": "Graduation Registration",
+      "additional_info7": "UAT Testing"
+    },
+    "device": {
+      "init_channel": "internet",
+      "ip": "127.0.0.1",
+      "user_agent": "Mozilla/5.0 (Test Script)",
+      "accept_header": "*/*"
+    }
+  },
+  "bd_traceid": "60c279ea9f63eeda7716",
+  "bd_timestamp": "20251030072705",
+  "encrypted_signed_request": {
+    "full_token": "eyJhbGciOiJIUzI1NiIsImNsaWVudGlkIjoiYmR1YXR2Mmt0a3NqMSIsImtpZCI6InJrb0dhNFNEeGN0SCJ9.ZXlKaGJHY2lPaUprYVhJaUxDSmxibU1pT2lKQk1qVTJSME5OSWl3aWEybGtJam9pY210dlIyRTBVMFI0WTNSSUlpd2lZMnhwWlc1MGFXUWlPaUppWkhWaGRIWXlhM1JyYzJveEluMC4uS3ZTRWlaenhGNTA3ZzV0dy44dW1KNmFDWmFTd3R2QnZDbm0waXI4R1NrUkhvb1c5Z0tEenFsc3JNQUZMMVBxaDNfN2x5a2FiTGUyUXlwa1dOdndHRmxteUU1d1Qtc1ZSNDVZQy15bFdrQ1B3T1pWb0ltMTJvMUVDbzQzUEttNHR2dEdhSVhwdzZUOWJuMElHTTlzRUlnM2hMTmU2TGdyNU1GVC1jODFBRVloRlNpZjZxNkFuMjVGVVRpNXVVUllEQjJ4d3R5RkNiMjlPWjNTRTRUcy1YbHpEeWZpLWRDUnc1NUFOcXBiYm9sOXBkSEU5bmpKY2F3Q3B4Z3E0QVpnbXhHR0hwVUF0Q2E5MFpNV2ZxNWx6aUNXMFI5R2tKekxENWVpYjlXOG15ZWdtSUJPdTRyb3JrSUZUVjlWRmNfUnlzcDB6Qi1NM1lPLXQtMzk0RkZVR0hPaG1WX25CTzJBZm5QcXNOUTVwU2JmVUhpb09DQ0JVTlJ4QU5kX21RZkhrYW5CZ2s1U0pERUc3azFiZVVUVS1tTUhDMGRuRW1DOXVOaFpDSHJfQXBTUjktNHRaRnYtbkZnYVg1ZlVFRllzVkRobE1HS2J0VzJ5NFNhMUFiOW1DUVk5X1JmWTZ2M0VlRkdXY1Q1RmdsZ3JzWEE2aDc3ZzNWUDVwWkVEVFJFWk01TnE3LTM2anNSdDhEOEh4MDB1Qi1GNFN6NVRrSndwdHV2N0VhVjFTX2ZLTHFLODQzRzN0bWNnOUpVbFBwU0xtdzlLVmFaMnVnaDhrakZWTng3bTVSM19Sbm9KNGZaYWxKOFNmQjJBMmtid3RzY2p4MEtYV1F4TjdKeW9DbDU0SFd1djhXRjNvVFRaRU5hSnY3R0NHUjZxb21zbE5BOG00Q0I4S29aaG4xUE5lMGFBUXcyZlBSQUh4a1g4dlBLQkJya0dBT3QxTVVUenU3bG9rRzVoOVNnenNUN25MVEh2RGk1T0hlT2VJSllQenJjcnJOdFV6WlJJY0JSZHQ4Sk55NnJDdTE3SENESUZPYWVKMUxfbDlOemdrQklCUUhSV1FKcFFsZUlsY1ZlbnY0TTdZSzZYTnhrOERuUmg2cC5jTVdtV3VHNE9LNC1mQU11emY0a3BR.l0ltu5aV-SLo-CK3St5lt2mVCEYOWQ7qmiYtNjDWUhQ",
+    "length": 1405,
+    "first_200_chars": "eyJhbGciOiJIUzI1NiIsImNsaWVudGlkIjoiYmR1YXR2Mmt0a3NqMSIsImtpZCI6InJrb0dhNFNEeGN0SCJ9.ZXlKaGJHY2lPaUprYVhJaUxDSmxibU1pT2lKQk1qVTJSME5OSWl3aWEybGtJam9pY210dlIyRTBVMFI0WTNSSUlpd2lZMnhwWlc1MGFXUWlPaUppWkh",
+    "last_100_chars": "bnY0TTdZSzZYTnhrOERuUmg2cC5jTVdtV3VHNE9LNC1mQU11emY0a3BR.l0ltu5aV-SLo-CK3St5lt2mVCEYOWQ7qmiYtNjDWUhQ"
+  },
+  "status": "FAILED",
+  "error": {
+    "message": "Request failed with status code 401",
+    "response": {
+      "status": 401,
+      "data": "eyJhbGciOiJIUzI1NiIsImNsaWVudGlkIjoiYmR1YXR2Mmt0a3NqMSIsImtpZCI6IkhNQUMifQ.ZXlKamJHbGxiblJwWkNJNkltSmtkV0YwZGpKcmRHdHphakVpTENKbGJtTWlPaUpCTWpVMlIwTk5JaXdpWVd4bklqb2laR2x5SWl3aWEybGtJam9pY210dlIyRTBVMFI0WTNSSUluMC4uVzVzTzhLUFhuMXNZazBaVC4xU2VzMWp2UXVOQXdkMTZrb0RnLUZVcjRfUXdoVW9zVVo5aG4zbngtaE9RTkxJWXVRd01sT09PN3RQSlpYUFNCdC0xSkd2a3hTOW1sUEh2cUF4aHFEdkgtS1NCWWhyeUNhMWZJMk1JZVh6Q01rZkljeVk2SFVCb3NrQ2ZGT3dma1lkUElMV0QtYmV1NEZwSldEMXNVM2ZVT3Ryby5NYUJ0T2FNamlvUjRIa3pJMjQtQm93.2pGBom4fbNku2Hp-Zm8Hr_AFHmtZIeVmlpKMf2FodtE"
+    }
+  }
+}

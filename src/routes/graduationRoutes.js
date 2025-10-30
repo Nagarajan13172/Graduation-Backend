@@ -17,6 +17,9 @@ router.get('/billdesk/return', controller.handleReturn);
 // Retrieve transaction status (name/path consistency)
 router.post('/billdesk/transactions/get', controller.retrieveTransaction);
 
+// Check pending transactions for reconciliation
+router.post('/billdesk/check-pending', controller.checkPendingTransactions);
+
 // Registration and Data Routes
 router.post('/register', controller.register);
 router.get('/all', controller.list);
