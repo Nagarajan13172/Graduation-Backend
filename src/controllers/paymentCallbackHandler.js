@@ -1,7 +1,7 @@
 const db = require('../db');
 const { billdesk } = require('../../server/billdesk');
 const verifyPaymentColumns = require('../utils/verifyColumns');
-
+const axios = require('axios');
 /**
  * Get student details by orderid
  * @param {string} orderid - The order ID to look up
@@ -148,13 +148,100 @@ async function handlePaymentCallback(req, res) {
       status: payment_status,
       auth_status,
       error_type: response.transaction_error_type,
-      error_code: response.transaction_error_code,
-      error_desc: response.transaction_error_desc,
-      bank_ref_no: response.bank_ref_no,
-      payment_category: response.payment_category,
-      txn_process_type: response.txn_process_type,
-      bankid: response.bankid
+      error_code: response.transaction_error_code
     };
+
+    // Double-check transaction status using retrieve API
+    console.log('\n=== VERIFYING TRANSACTION STATUS ===');
+    try {
+      const retrievePayload = { 
+        mercid: billdesk.mercId, 
+        orderid,
+        transactionid // Include transactionid in retrieve request
+      };
+      // Remove undefined fields
+      if (!transactionid) delete retrievePayload.transactionid;
+      
+      console.log('Calling retrieveTransaction with payload:', JSON.stringify(retrievePayload, null, 2));
+      
+      const url = `${billdesk.baseUrl}/payments/ve1_2/transactions/get`;
+      
+      // Use complete flow: Encrypt then Sign (same as createOrderToken)
+      const signedToken = await billdesk.createOrderToken(retrievePayload);
+      
+      // Use standard JOSE headers (no Authorization header needed - token is in body)
+      const headers = billdesk.joseHeaders();
+      
+      console.log('Request Headers:', JSON.stringify(headers, null, 2));
+      console.log('Signed Token (first 150 chars):', signedToken.substring(0, 150) + '...');
+      
+      const retrieveResponse = await axios.post(url, signedToken, {
+        headers,
+        timeout: 30000
+      });
+      
+      console.log('\n=== RETRIEVE TRANSACTION RESPONSE ===');
+      console.log('Raw Response:', retrieveResponse.data);
+      console.log('Response Status:', retrieveResponse.status);
+      console.log('Response Headers:', JSON.stringify(retrieveResponse.headers, null, 2));
+      
+      if (retrieveResponse.data) {
+        console.log('\n=== PROCESSING RETRIEVE RESPONSE ===');
+        console.log('1. Signed and Encrypted Response (first 150 chars):', retrieveResponse.data);
+        
+        // Use complete response processing: Verify signature then decrypt
+        const verifiedStatus = await billdesk.processResponse(retrieveResponse.data);
+        console.log('\n2. Verified and Decrypted Response:');
+        console.log(JSON.stringify(verifiedStatus, null, 2));
+        
+        // Log all important fields
+        console.log('\n=== TRANSACTION DETAILS ===');
+        console.log('Transaction ID:', verifiedStatus.transactionid);
+        console.log('Order ID:', verifiedStatus.orderid);
+        console.log('BD Order ID:', verifiedStatus.bdorderid);
+        console.log('Amount:', verifiedStatus.amount);
+        console.log('Auth Status:', verifiedStatus.auth_status);
+        console.log('Transaction Status:', verifiedStatus.transaction_status);
+        console.log('Transaction Date:', verifiedStatus.transaction_date);
+        console.log('Error Type:', verifiedStatus.transaction_error_type);
+        console.log('Error Code:', verifiedStatus.transaction_error_code);
+        console.log('Error Description:', verifiedStatus.transaction_error_desc);
+        console.log('================================\n');
+        
+        // Compare auth_status from callback and retrieve API
+        if (verifiedStatus.auth_status !== auth_status) {
+          console.warn('\n⚠️ WARNING: Transaction status mismatch');
+          console.warn('Callback auth_status:', auth_status);
+          console.warn('Retrieved auth_status:', verifiedStatus.auth_status);
+          console.warn('Detailed comparison:');
+          console.table({
+            'Field': ['Auth Status', 'Transaction ID', 'Amount', 'Error Code'],
+            'Callback': [auth_status, transactionid, amount, payment_details.error_code],
+            'Retrieved': [verifiedStatus.auth_status, verifiedStatus.transactionid, verifiedStatus.amount, verifiedStatus.transaction_error_code]
+          });
+          
+          // Use the retrieved status as source of truth
+          payment_details.status = verifiedStatus.auth_status === '0300' ? 'paid' : 'failed';
+          payment_details.auth_status = verifiedStatus.auth_status;
+          payment_details.error_type = verifiedStatus.transaction_error_type;
+          payment_details.error_code = verifiedStatus.transaction_error_code;
+          payment_details.error_desc = verifiedStatus.transaction_error_desc;
+        } else {
+          console.log('✓ Transaction status verified - Callback matches Retrieve API response');
+        }
+      }
+    } catch (retrieveError) {
+      console.error('Failed to verify transaction status:', retrieveError.message);
+      // Continue with callback data if retrieve fails
+    }
+    console.log('=== VERIFICATION COMPLETE ===\n');
+
+    // Add remaining payment details
+    payment_details.error_desc = response.transaction_error_desc;
+    payment_details.bank_ref_no = response.bank_ref_no;
+    payment_details.payment_category = response.payment_category;
+    payment_details.txn_process_type = response.txn_process_type;
+    payment_details.bankid = response.bankid;
 
     console.log('\n=== PREPARED DATABASE VALUES ===');
     console.log('orderid:', orderid);

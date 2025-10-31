@@ -722,27 +722,66 @@ exports.retrieveTransaction = async (req, res) => {
     
     console.log('=== BillDesk Retrieve Transaction ===');
     console.log('1. Transaction Query Payload:', JSON.stringify(payload, null, 2));
-    
+
+    // Build the JWS request
     const jws = billdesk.jwsCompact(payload);
-    console.log('2. Encrypted Request (JWS):', jws);
-    
+    console.log('\n2. Encrypted Request (JWS) -> length:', String(jws).length);
+    console.log('2a. Encrypted Request (JWS) (first 1000 chars):');
+    console.log(String(jws).substring(0, 1000) + (String(jws).length > 1000 ? '... [truncated]' : ''));
+
     const url = `${billdesk.baseUrl}/payments/ve1_2/transactions/get`;
     const headers = billdesk.joseHeaders();
-    console.log('3. Request URL:', url);
+    console.log('\n3. Request URL:', url);
     console.log('4. Request Headers:', JSON.stringify(headers, null, 2));
-    
-    const response = await axios.post(url, jws, {
-      headers,
-      timeout: 30000
-    });
-    
-    console.log('5. Response Status:', response.status);
-    console.log('6. Response Data (encrypted):', response.data);
-    
-    const decoded = billdesk.verifyJws(response.data);
-    console.log('7. Response Data (decrypted):', JSON.stringify(decoded, null, 2));
+
+    // Send request to BillDesk
+    let response;
+    try {
+      response = await axios.post(url, jws, {
+        headers,
+        timeout: 30000
+      });
+    } catch (err) {
+      console.error('Retrieve Transaction - HTTP request failed:', err.message);
+      if (err.response) {
+        console.error('HTTP Response Status:', err.response.status);
+        try {
+          console.error('HTTP Response Headers:', JSON.stringify(err.response.headers, null, 2));
+        } catch (e) {}
+        try { console.error('HTTP Response Data (encrypted):', String(err.response.data).substring(0, 2000) + (String(err.response.data).length > 2000 ? '... [truncated]' : '')); } catch (e) {}
+      }
+      if (err.response && err.response.data) {
+        // Attempt to verify if possible
+        try {
+          const attempted = billdesk.verifyJws(err.response.data);
+          console.log('Attempted decryption of error response succeeded:', JSON.stringify(attempted, null, 2));
+        } catch (verifyErr) {
+          console.warn('Attempted verification of error response failed:', verifyErr.message);
+        }
+      }
+      throw err;
+    }
+
+    console.log('\n5. Response Status:', response.status);
+    try { console.log('5a. Response Headers:', JSON.stringify(response.headers, null, 2)); } catch (e) {}
+    console.log('6. Response Data (encrypted) -> length:', String(response.data).length);
+    console.log('6a. Response Data (encrypted) (first 2000 chars):');
+    console.log(String(response.data).substring(0, 2000) + (String(response.data).length > 2000 ? '... [truncated]' : ''));
+
+    // Verify and decrypt the response
+    let decoded;
+    try {
+      decoded = billdesk.verifyJws(response.data);
+    } catch (verifyErr) {
+      console.error('Retrieve Transaction - Signature verification failed:', verifyErr.message);
+      // rethrow to be handled by outer catch
+      throw verifyErr;
+    }
+
+    console.log('\n7. Response Data (decrypted):');
+    console.log(JSON.stringify(decoded, null, 2));
     console.log('=== Retrieve Transaction Complete ===\n');
-    
+
     return res.json(decoded);
   } catch (error) {
     console.error('Retrieve transaction error:', error.message);

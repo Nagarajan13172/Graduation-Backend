@@ -1,0 +1,1 @@
+console.log(`BillDesk Config Status:`); const vars = ["BILLDESK_CLIENT_ID", "BILLDESK_SECRET", "BILLDESK_ENCRYPTION_PASSWORD", "BILLDESK_MERC_ID", "BILLDESK_BASE_URL", "BILLDESK_KEY_ID"]; vars.forEach(v => console.log(`${v}: ${process.env[v] ? "? Set" : "? Missing"}`));
