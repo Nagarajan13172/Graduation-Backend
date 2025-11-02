@@ -1,0 +1,51 @@
+services:
+  graduate-backend:
+    image: pu-backend
+    container_name: graduate-backend
+    hostname: graduate-backend
+    restart: always
+    env_file:
+      - .env
+    healthcheck:
+      # hit an API path that exists in your app
+      test: [ "CMD-SHELL", "curl -fsS http://localhost:3000/ || exit 1" ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    networks:
+      - app
+      - edge
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.graduate-backend.rule=host(`api.graduate.periyaruniversity.ac.in`)
+      - traefik.http.routers.graduate-backend.entrypoints=websecure
+      - traefik.http.routers.graduate-backend.tls=true
+      - traefik.http.routers.graduate-backend.tls.certresolver=myresolver
+      - traefik.http.routers.graduate-backend.middlewares=graduate-backend-ratelimit@docker,graduate-backend-cors@docker
+      - traefik.http.services.graduate-backend.loadbalancer.server.port=3000
+      - traefik.http.middlewares.graduate-backend-ratelimit.ratelimit.average=30
+      - traefik.http.middlewares.graduate-backend-ratelimit.ratelimit.burst=120
+      - traefik.http.middlewares.graduate-backend-ratelimit.ratelimit.period=3s
+      - traefik.http.middlewares.graduate-backend-cors.headers.accessControlAllowOriginList=*
+      - traefik.http.middlewares.graduate-backend-cors.headers.accessControlAllowMethods=GET,POST,PUT,PATCH,DELETE,OPTIONS
+      - traefik.http.middlewares.graduate-backend-cors.headers.accessControlAllowHeaders=*
+      - traefik.http.middlewares.graduate-backend-cors.headers.addVaryHeader=true
+
+    volumes:
+      - graduate_uploads:/home/periyaruniversity/backend/src/Uploads
+      - data_volume:/home/periyaruniversity/backup/data
+
+volumes:
+  graduate_uploads:
+    driver: local
+  data_volume:
+    driver: local
+
+networks:
+  edge:
+    external: true
+    name: edge
+  app:
+    external: true
+    name: app
