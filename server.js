@@ -2,6 +2,7 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
+const morgan = require('morgan');
 
 const graduationRoutes = require('./src/routes/graduationRoutes');
 const adminRoutes = require('./src/routes/adminRoutes');
@@ -10,6 +11,21 @@ const paymentRoutes = require('./src/routes/paymentRoutes');
 const app = express();
 
 app.use(cors());
+
+// Custom logger middleware for IP and timestamp
+app.use((req, res, next) => {
+  const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress || req.ip;
+  const timestamp = new Date().toISOString();
+  console.log(`[${timestamp}] ${req.method} ${req.path} - IP: ${ip}`);
+  next();
+});
+
+// Morgan logger for detailed HTTP request logging
+morgan.token('real-ip', (req) => {
+  return req.headers['x-forwarded-for'] || req.socket.remoteAddress || req.ip;
+});
+
+app.use(morgan(':real-ip - :method :url :status :res[content-length] - :response-time ms - [:date[iso]]'));
 
 // Custom middleware to handle BillDesk callback format
 app.use((req, res, next) => {
