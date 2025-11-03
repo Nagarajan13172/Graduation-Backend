@@ -6,7 +6,7 @@ const archiver = require('archiver');
 const axios = require('axios');
 const { billdesk } = require('../../server/billdesk');
 
-const RU_PUBLIC = process.env.RU_PUBLIC || 'http://localhost:3000/api/payment/callback';
+const RU_PUBLIC = process.env.RU_PUBLIC;
 
 // ---------- Multer (only for multipart) ----------
 const storage = multer.diskStorage({
@@ -96,11 +96,11 @@ exports.checkEmail = (req, res) => {
 
 exports.checkBillDeskConfig = (req, res) => {
   const config = {
-    mercId: billdesk.mercId ? 
+    mercId: billdesk.mercId ?
       (String(billdesk.mercId).includes('your_') ? '✗ Placeholder value' : '✓ Set') : '✗ Not set',
-    clientId: billdesk.clientId ? 
+    clientId: billdesk.clientId ?
       (String(billdesk.clientId).includes('your_') ? '✗ Placeholder value' : '✓ Set') : '✗ Not set',
-    secret: process.env.BILLDESK_SECRET ? 
+    secret: process.env.BILLDESK_SECRET ?
       (String(process.env.BILLDESK_SECRET).includes('your_') ? '✗ Placeholder value' : '✓ Set') : '✗ Not set',
     baseUrl: billdesk.baseUrl || 'Not set',
     returnUrl: RU_PUBLIC || 'Not set'
@@ -176,8 +176,8 @@ exports.createCheckoutSession = (req, res) => {
 
       // Validate RU and webhook URLs don't contain parameters
       if (ru && (ru.includes('?') || ru.includes('&'))) {
-        return res.status(400).json({ 
-          error: 'RU (Return URL) must not contain query parameters (?&)' 
+        return res.status(400).json({
+          error: 'RU (Return URL) must not contain query parameters (?&)'
         });
       }
 
@@ -187,11 +187,11 @@ exports.createCheckoutSession = (req, res) => {
       if (!orderId) {
         orderId = `ORD${Date.now()}${Math.floor(Math.random() * 1000)}`;
       }
-      
+
       // Validate orderid: alphanumeric only, no special characters
       if (!/^[A-Za-z0-9]+$/.test(orderId)) {
-        return res.status(400).json({ 
-          error: 'orderid must contain only alphanumeric characters (no special characters allowed)' 
+        return res.status(400).json({
+          error: 'orderid must contain only alphanumeric characters (no special characters allowed)'
         });
       }
 
@@ -204,8 +204,8 @@ exports.createCheckoutSession = (req, res) => {
       });
 
       if (existingOrder) {
-        return res.status(400).json({ 
-          error: 'orderid already exists. Please use a unique orderid.' 
+        return res.status(400).json({
+          error: 'orderid already exists. Please use a unique orderid.'
         });
       }
 
@@ -217,7 +217,7 @@ exports.createCheckoutSession = (req, res) => {
       `;
 
       await new Promise((resolve, reject) => {
-        db.run(updateOrderQuery, [orderId], function(err) {
+        db.run(updateOrderQuery, [orderId], function (err) {
           if (err) {
             console.error('Error saving orderid:', err);
             reject(err);
@@ -281,7 +281,7 @@ exports.createCheckoutSession = (req, res) => {
         WHERE orderid = ?
       `;
       await new Promise((resolve, reject) => {
-        db.run(storeRequestTokenQuery, [finalToken, orderId], function(err) {
+        db.run(storeRequestTokenQuery, [finalToken, orderId], function (err) {
           if (err) {
             console.error('Error storing original request token:', err);
             // Don't fail the request, just log the error
@@ -310,8 +310,8 @@ exports.createCheckoutSession = (req, res) => {
       });
 
       console.log('6. BillDesk Response Status:', response.status);
-      console.log('7. BillDesk Response Data (encrypted + signed):', 
-          response.data);
+      console.log('7. BillDesk Response Data (encrypted + signed):',
+        response.data);
 
       // NEW: Use processResponse to verify signature and decrypt
       const decoded = await billdesk.processResponse(response.data);
@@ -335,20 +335,20 @@ exports.createCheckoutSession = (req, res) => {
       });
     } catch (error) {
       console.error('BillDesk order creation error:', error.message);
-      
+
       // If there's a response from BillDesk API, try to decrypt it
       if (error.response && error.response.data) {
         console.error('BillDesk API error status:', error.response.status);
-        console.error('BillDesk API error data (encrypted):', 
-                      typeof error.response.data === 'string' ? error.response.data.substring(0, 100) + '...' : error.response.data);
-        
+        console.error('BillDesk API error data (encrypted):',
+          typeof error.response.data === 'string' ? error.response.data.substring(0, 100) + '...' : error.response.data);
+
         try {
           // Try to decrypt the error response
           console.log('\n=== Attempting to decrypt BillDesk error response ===');
           const decryptedError = await billdesk.processResponse(error.response.data);
           console.log('Decrypted error response:', JSON.stringify(decryptedError, null, 2));
           console.log('=== End error decryption ===\n');
-          
+
           // Send decrypted error to frontend
           return res.status(error.response.status || 400).json({
             success: false,
@@ -370,13 +370,13 @@ exports.createCheckoutSession = (req, res) => {
             message: error.message,
             details: {
               status: error.response.status,
-              encrypted_data: typeof error.response.data === 'string' ? 
+              encrypted_data: typeof error.response.data === 'string' ?
                 error.response.data.substring(0, 100) + '...' : error.response.data
             }
           });
         }
       }
-      
+
       // Generic error (no response from BillDesk)
       return res.status(500).json({
         success: false,
@@ -420,10 +420,10 @@ exports.handleWebhook = async (req, res) => {
     console.log('\n=== BILLDESK WEBHOOK RECEIVED (S2S) ===');
     console.log('Timestamp:', new Date().toISOString());
     console.log('Request Headers:', JSON.stringify(req.headers, null, 2));
-    
+
     let encryptedResponse = null;
     let decoded = null;
-    
+
     // Extract encrypted response based on content type
     if (req.is("application/jose") || typeof req.body === 'string') {
       encryptedResponse = req.body;
@@ -462,7 +462,7 @@ exports.handleWebhook = async (req, res) => {
     const bdorderid = decoded.bdorderid;
     const transactionid = decoded.transactionid;
     const amount = decoded.amount?.toString();
-    
+
     if (!orderid) {
       console.error('Webhook: Missing orderid in response');
       return res.status(200).json({ ack: true, error: 'Missing orderid' });
@@ -471,7 +471,7 @@ exports.handleWebhook = async (req, res) => {
     // Map BillDesk status to our status
     // IMPORTANT: Only check auth_status after signature verification
     const payment_status = auth_status === '0300' ? 'paid' : 'failed';
-    
+
     // Format transaction date
     let transaction_date = null;
     if (decoded.transaction_date) {
@@ -481,9 +481,9 @@ exports.handleWebhook = async (req, res) => {
         console.warn('Invalid transaction date format:', decoded.transaction_date);
       }
     }
-    
+
     const payment_method_type = decoded.payment_method?.type || 'unknown';
-    
+
     const payment_details = {
       status: payment_status,
       auth_status,
@@ -542,7 +542,7 @@ exports.handleWebhook = async (req, res) => {
         receipt_number,
         receipt_generated_at,
         orderid
-      ], function(err) {
+      ], function (err) {
         if (err) {
           console.error('Webhook DB update error:', err);
           reject(err);
@@ -562,7 +562,7 @@ exports.handleWebhook = async (req, res) => {
 
     // Send acknowledgment to BillDesk
     return res.status(200).json({ ack: true });
-    
+
   } catch (error) {
     console.error('Webhook processing error:', error.message);
     console.error('Stack:', error.stack);
@@ -579,13 +579,13 @@ exports.handleReturn = async (req, res) => {
   try {
     console.log('\n=== BILLDESK RETURN URL (Browser Callback) ===');
     console.log('This is for DISPLAY ONLY - payment processing happens in webhook');
-    
+
     // Extract transaction response from query params or form body
     const encryptedResponse = req.query?.transaction_response || req.body?.transaction_response;
-    
+
     let orderid = null;
     let payment_status = 'processing';
-    
+
     if (encryptedResponse) {
       try {
         // Verify and decrypt the response to get orderid for display
@@ -593,13 +593,13 @@ exports.handleReturn = async (req, res) => {
         orderid = decoded.orderid;
         const auth_status = decoded.auth_status;
         payment_status = auth_status === '0300' ? 'success' : 'failed';
-        
+
         console.log('RU Handler - orderid:', orderid, 'status:', payment_status);
       } catch (error) {
         console.error('RU Handler - Error decoding response:', error.message);
       }
     }
-    
+
     // Return HTML acknowledgment page
     const html = `
     <!doctype html>
@@ -661,14 +661,14 @@ exports.handleReturn = async (req, res) => {
           <h1>${payment_status === 'success' ? 'Payment Successful!' : 'Payment Processing'}</h1>
           ${orderid ? `<div class="orderid">Order ID: ${orderid}</div>` : ''}
           <div class="message">
-            ${payment_status === 'success' 
-              ? 'Thank you! Your payment has been received successfully. Your registration is being processed.' 
-              : 'Thank you! Your payment is being processed. Please wait while we confirm your transaction.'}
+            ${payment_status === 'success'
+        ? 'Thank you! Your payment has been received successfully. Your registration is being processed.'
+        : 'Thank you! Your payment is being processed. Please wait while we confirm your transaction.'}
           </div>
           <div class="note">
-            ${payment_status === 'success' 
-              ? 'You will receive a confirmation email shortly with your receipt.' 
-              : 'This page will redirect automatically. Please do not refresh or close this window.'}
+            ${payment_status === 'success'
+        ? 'You will receive a confirmation email shortly with your receipt.'
+        : 'This page will redirect automatically. Please do not refresh or close this window.'}
           </div>
         </div>
         <script>
@@ -679,9 +679,9 @@ exports.handleReturn = async (req, res) => {
         </script>
       </body>
     </html>`;
-    
+
     res.type("html").send(html);
-    
+
   } catch (error) {
     console.error('RU Handler error:', error.message);
     const errorHtml = `
@@ -719,7 +719,7 @@ exports.retrieveTransaction = async (req, res) => {
     }
 
     const payload = { mercid: billdesk.mercId, orderid, refund_details: true };
-    
+
     console.log('=== BillDesk Retrieve Transaction ===');
     console.log('1. Transaction Query Payload:', JSON.stringify(payload, null, 2));
 
@@ -747,8 +747,8 @@ exports.retrieveTransaction = async (req, res) => {
         console.error('HTTP Response Status:', err.response.status);
         try {
           console.error('HTTP Response Headers:', JSON.stringify(err.response.headers, null, 2));
-        } catch (e) {}
-        try { console.error('HTTP Response Data (encrypted):', String(err.response.data).substring(0, 2000) + (String(err.response.data).length > 2000 ? '... [truncated]' : '')); } catch (e) {}
+        } catch (e) { }
+        try { console.error('HTTP Response Data (encrypted):', String(err.response.data).substring(0, 2000) + (String(err.response.data).length > 2000 ? '... [truncated]' : '')); } catch (e) { }
       }
       if (err.response && err.response.data) {
         // Attempt to verify if possible
@@ -763,7 +763,7 @@ exports.retrieveTransaction = async (req, res) => {
     }
 
     console.log('\n5. Response Status:', response.status);
-    try { console.log('5a. Response Headers:', JSON.stringify(response.headers, null, 2)); } catch (e) {}
+    try { console.log('5a. Response Headers:', JSON.stringify(response.headers, null, 2)); } catch (e) { }
     console.log('6. Response Data (encrypted) -> length:', String(response.data).length);
     console.log('6a. Response Data (encrypted) (first 2000 chars):');
     console.log(String(response.data).substring(0, 2000) + (String(response.data).length > 2000 ? '... [truncated]' : ''));
@@ -795,21 +795,21 @@ exports.retrieveTransaction = async (req, res) => {
 exports.checkPendingTransactions = async (req, res) => {
   try {
     const { olderThanMinutes = 10 } = req.body || {};
-    
+
     console.log('=== Triggering Pending Transaction Check ===');
     console.log('Checking transactions older than', olderThanMinutes, 'minutes');
-    
+
     // Import the utility
     const { checkPendingTransactions } = require('../utils/checkPendingTransactions');
-    
+
     const result = await checkPendingTransactions(olderThanMinutes);
-    
+
     return res.json({
       success: true,
       message: 'Pending transaction check completed',
       result
     });
-    
+
   } catch (error) {
     console.error('Error checking pending transactions:', error.message);
     return res.status(500).json({
@@ -1024,7 +1024,7 @@ exports.getFile = (req, res) => {
     }
 
     const mimeType = path.extname(filePath).toLowerCase() === '.pdf' ? 'application/pdf' :
-                     (path.extname(filePath).toLowerCase() === '.png' ? 'image/png' : 'image/jpeg');
+      (path.extname(filePath).toLowerCase() === '.png' ? 'image/png' : 'image/jpeg');
     res.setHeader('Content-Type', mimeType);
     res.setHeader('Content-Disposition', `attachment; filename=${fileType}${path.extname(filePath)}`);
     fs.createReadStream(filePath).pipe(res);
