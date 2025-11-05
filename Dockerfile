@@ -18,4 +18,8 @@ RUN npm install --legacy-peer-deps
 
 COPY --chown=periyaruniversity:periyaruniversity . .
 
+RUN mkdir -p /home/periyaruniversity/Faculty-Backend/src/Uploads
+
+RUN mkdir -p /home/periyaruniversity/Faculty-Backend/data
+
 CMD ["npm", "start"]

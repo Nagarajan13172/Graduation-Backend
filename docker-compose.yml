@@ -1,13 +1,12 @@
 services:
   graduate-backend:
-    image: pu-backend
+    image: graduate-backend
     container_name: graduate-backend
-    hostname: graduate-backend
+    hostname: graduate
     restart: always
     env_file:
       - .env
     healthcheck:
-      # hit an API path that exists in your app
       test: [ "CMD-SHELL", "curl -fsS http://localhost:3000/ || exit 1" ]
       interval: 30s
       timeout: 10s
@@ -28,13 +27,22 @@ services:
       - traefik.http.middlewares.api-headers.headers.accesscontrolallowheaders=Content-Type,Authorization
       - traefik.http.middlewares.api-headers.headers.accesscontrolalloworiginlist=https://graduate.periyaruniversity.ac.in
       - traefik.http.middlewares.api-headers.headers.accesscontrolallowcredentials=true
-      - traefik.http.routers.api.middlewares=api-headers
+      - traefik.http.routers.api.middlewares=api-headers,ratelimit
+      - traefik.http.middlewares.ratelimit.ratelimit.average=30
+      - traefik.http.middlewares.ratelimit.ratelimit.burst=120
+      - traefik.http.middlewares.ratelimit.ratelimit.period=3s
+      - traefik.http.middlewares.ratelimit.ratelimit.sourceCriterion.ipStrategy.depth=1
 
     volumes:
-      - graduate_uploads:/home/periyaruniversity/backend/src/Uploads
-      - data_volume:/home/periyaruniversity/backup/data
+      - graduate_uploads:/home/periyaruniversity/Faculty-Backend/src/Uploads
+      - data_volume:/home/periyaruniversity/Faculty-Backend/data
       - /etc/localtime:/etc/localtime:ro
       - /etc/timezone:/etc/timezone:ro
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
 
 volumes:
   graduate_uploads:

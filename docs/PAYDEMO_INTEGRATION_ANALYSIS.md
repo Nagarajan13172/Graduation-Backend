@@ -18,7 +18,7 @@ await fetch(`${API_BASE}/api/billdesk/orders`, ...)
 // ❌ Your code sends JSON:
 body: JSON.stringify({
   orderid,
-  amount: "300.00",
+  amount: "100.00",
   // ...
 })
 
@@ -73,7 +73,7 @@ window.location.href = `${API_BASE}/api/billdesk/launch?...`
 ### 5. **Amount Mismatch**
 ```javascript
 // ❌ Your frontend shows:
-<span>Pay ₹300.00</span>
+<span>Pay 100.00</span>
 
 // ✅ Backend charges:
 amount: '500.00' // Registration fee is ₹500
