@@ -21,7 +21,7 @@ db.serialize(() => {
       guardian_name TEXT NOT NULL,
       nationality TEXT NOT NULL,
       religion TEXT NOT NULL,
-      email TEXT UNIQUE,
+      email TEXT ,
       mobile_number TEXT NOT NULL CHECK (length(mobile_number) = 10 AND mobile_number GLOB '[0-9]*'),
       place_of_birth TEXT CHECK (place_of_birth IN ('Dharmapuri','Krishnagiri','Namakkal','Salem')) NOT NULL,
       community TEXT CHECK (community IN ('OC','BC','SC','ST','MBC')) NOT NULL,

@@ -65,6 +65,7 @@ verifyPaymentColumns()
  * The webhook handler in graduationController.js is the source of truth
  */
 async function handlePaymentCallback(req, res) {
+  let orderid = null;
   try {
     console.log('\n=== BILLDESK PAYMENT CALLBACK RECEIVED ===');
     console.log('WARNING: This is the fallback callback handler');
@@ -103,7 +104,7 @@ async function handlePaymentCallback(req, res) {
     console.log('================================\n');
 
     // Safely extract payment details with defaults
-    const orderid = response.orderid || null;
+    orderid = response.orderid || null;
     const bdorderid = response.bdorderid || null;
     const transactionid = response.transactionid || null;
     const amount = response.amount?.toString() || null;
@@ -401,8 +402,17 @@ async function handlePaymentCallback(req, res) {
     console.error('Error Message:', error.message);
     console.error('Error Stack:', error.stack);
     console.error('=============================\n');
+
     const frontendBaseUrl = process.env.FRONT_END_URL;
-    return res.redirect(`${frontendBaseUrl}/failed?error=${encodeURIComponent(error.message)}`);
+
+
+    // Build redirect URL with orderid if available
+    const redirectUrl = orderid
+      ? `${frontendBaseUrl}/failed?orderid=${orderid}&error=${encodeURIComponent(error.message)}`
+      : `${frontendBaseUrl}/failed?error=${encodeURIComponent(error.message)}`;
+
+    console.log('Error redirect URL:', redirectUrl);
+    return res.redirect(redirectUrl);
   }
 }
 

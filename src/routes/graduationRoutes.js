@@ -20,6 +20,9 @@ router.post('/billdesk/transactions/get', controller.retrieveTransaction);
 // Check pending transactions for reconciliation
 router.post('/billdesk/check-pending', controller.checkPendingTransactions);
 
+// Get order details by orderid (form + transaction info)
+router.get('/orders/:orderid', controller.getOrderByOrderId);
+
 // Registration and Data Routes
 router.post('/register', controller.register);
 router.get('/all', controller.list);

@@ -88,6 +88,7 @@ Get your BillDesk credentials from your relationship manager.
 | POST | `/api/graduation/register` | Register student (after payment) |
 | GET | `/api/graduation/all` | List all students |
 | GET | `/api/graduation/check-email` | Check email availability |
+| GET | `/api/graduation/orders/:orderid` | Get order details by orderid (form + transaction) |
 | GET | `/api/graduation/file/:studentId/:fileType` | Download file |
 | GET | `/api/graduation/files/:studentId` | Download all files as ZIP |
 
