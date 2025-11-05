@@ -81,6 +81,7 @@ const toBool = (v) => {
 };
 
 // ---------- Public APIs ----------
+// Check if email exists in database (informational only - duplicates are allowed)
 exports.checkEmail = (req, res) => {
   const { email } = req.query;
   if (!email || !isEmail(email)) {
@@ -1027,20 +1028,6 @@ exports.register = (req, res) => {
     if (!lunch_required || !LUNCH_ENUM.includes(lunch_required)) return res.status(400).json({ error: `Lunch required must be one of ${LUNCH_ENUM.join(', ')}` });
     if (!companion_option || !COMPANION_ENUM.includes(companion_option)) return res.status(400).json({ error: `Companion option must be one of: ${COMPANION_ENUM.join(' | ')}` });
 
-    // Check email uniqueness if provided
-    if (email) {
-      const emailExists = await new Promise((resolve, reject) => {
-        db.get(`SELECT email FROM students WHERE email = ?`, [email], (err, row) => {
-          if (err) {
-            console.error('DB fetch error for email uniqueness:', err.message, err.stack);
-            reject(err);
-          }
-          resolve(!!row);
-        });
-      });
-      if (emailExists) return res.status(409).json({ error: 'Email is already registered' });
-    }
-
     // Generate initial order ID
     const initialOrderId = `ORD${Date.now()}${Math.floor(Math.random() * 1000)}`;
 
@@ -1097,11 +1084,6 @@ exports.register = (req, res) => {
       params,
       function (err) {
         if (err) {
-          if (String(err.message).includes('UNIQUE')) {
-            if (err.message.includes('email')) {
-              return res.status(409).json({ error: 'Email is already registered' });
-            }
-          }
           console.error('DB insert error:', err.message, err.stack);
           return res.status(500).json({ error: 'Failed to register' });
         }
