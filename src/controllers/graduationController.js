@@ -853,8 +853,6 @@ exports.getOrderByOrderId = async (req, res) => {
         is_registered_graduate,
         occupation,
         address,
-        lunch_required,
-        companion_option,
         orderid,
         payment_status,
         bdorderid,

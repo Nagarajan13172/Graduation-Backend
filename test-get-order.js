@@ -30,6 +30,8 @@ const query = `
     is_registered_graduate,
     occupation,
     address,
+    lunch_required,
+    companion_option,
     orderid,
     payment_status,
     bdorderid,
@@ -94,7 +96,9 @@ db.get(query, [testOrderId], (err, row) => {
         // Additional Information
         additional_info: {
             occupation: row.occupation,
-            address: row.address
+            address: row.address,
+            lunch_required: row.lunch_required,
+            companion_option: row.companion_option
         },
 
         // Transaction Information
