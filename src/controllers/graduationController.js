@@ -979,7 +979,7 @@ exports.register = (req, res) => {
     const {
       full_name, date_of_birth, gender, guardian_name, nationality, religion, email, mobile_number,
       place_of_birth, community, mother_tongue, aadhar_number, degree_name, university_name,
-      degree_pattern, convocation_year, occupation, address, declaration, lunch_required, companion_option
+      degree_pattern, convocation_year, occupation, address, declaration
     } = req.body;
 
     const is_registered_graduate = toBool(req.body.is_registered_graduate);
@@ -1019,8 +1019,6 @@ exports.register = (req, res) => {
     if (!req.files?.signature) return res.status(400).json({ error: 'Signature is required' });
     if (req.files.signature[0].size > 5 * 1024 * 1024) return res.status(400).json({ error: 'Signature must be less than 5MB' });
     if (!toBool(declaration)) return res.status(400).json({ error: 'Declaration must be true' });
-    if (!lunch_required || !LUNCH_ENUM.includes(lunch_required)) return res.status(400).json({ error: `Lunch required must be one of ${LUNCH_ENUM.join(', ')}` });
-    if (!companion_option || !COMPANION_ENUM.includes(companion_option)) return res.status(400).json({ error: `Companion option must be one of: ${COMPANION_ENUM.join(' | ')}` });
 
     // Generate initial order ID
     const initialOrderId = `ORD${Date.now()}${Math.floor(Math.random() * 1000)}`;
@@ -1052,8 +1050,6 @@ exports.register = (req, res) => {
       address,
       req.files.signature[0].path,
       toBool(declaration) ? 1 : 0,
-      lunch_required,
-      companion_option,
       initialOrderId,            // Add orderid
       'pending',                 // Initial payment_status
       null,                     // bdorderid (will be set after payment)
@@ -1070,10 +1066,10 @@ exports.register = (req, res) => {
         place_of_birth, community, mother_tongue, applicant_photo_path, aadhar_number, aadhar_copy_path,
         residence_certificate_path, degree_name, university_name, degree_pattern, convocation_year,
         degree_certificate_path, is_registered_graduate, other_university_certificate_path, occupation,
-        address, signature_path, declaration, lunch_required, companion_option, orderid, payment_status,
+        address, signature_path, declaration, orderid, payment_status,
         bdorderid, transaction_id, payment_amount, payment_date, payment_method_type, created_at, updated_at
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
       `,
       params,
       function (err) {
