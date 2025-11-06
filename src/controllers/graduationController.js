@@ -54,12 +54,8 @@ function maybeUpload(req, res, next) {
 
 // ---------- Helpers ----------
 const GENDER_ENUM = ['Male', 'Female', 'Other'];
-const LUNCH_ENUM = ['VEG', 'NON-VEG'];
 const COMMUNITY_ENUM = ['OC', 'BC', 'SC', 'ST', 'MBC'];
 const DISTRICT_ENUM = ['Dharmapuri', 'Krishnagiri', 'Namakkal', 'Salem'];
-const COMPANION_ENUM = [
-  '1 Veg', '1 Non veg', '2 Veg', '2 Non Veg', '1 Veg and 1 Non veg'
-];
 
 const isEmail = (s) => !!s && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s);
 const isPhone = (s) => !!s && /^\d{10}$/.test(s);
@@ -149,7 +145,7 @@ exports.createCheckoutSession = (req, res) => {
       const {
         full_name, date_of_birth, gender, guardian_name, nationality, religion, email, mobile_number,
         place_of_birth, community, mother_tongue, aadhar_number, degree_name, university_name,
-        degree_pattern, convocation_year, occupation, address, declaration, lunch_required, companion_option,
+        degree_pattern, convocation_year, occupation, address, declaration,
         additional_info = {},
         orderid: incomingOrderId
       } = req.body || {};

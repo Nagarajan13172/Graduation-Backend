@@ -41,16 +41,6 @@ db.serialize(() => {
       address TEXT NOT NULL,
       signature_path TEXT NOT NULL,
       declaration INTEGER NOT NULL CHECK (declaration IN (0,1)),
-      lunch_required TEXT CHECK (lunch_required IN ('VEG','NON-VEG')) NOT NULL,
-      companion_option TEXT CHECK (
-        companion_option IN (
-          '1 Veg',
-          '1 Non veg',
-          '2 Veg',
-          '2 Non Veg',
-          '1 Veg and 1 Non veg'
-        )
-      ) NOT NULL,
       billdesk_order_id TEXT,
       billdesk_transaction_id TEXT,
       payment_status TEXT,
